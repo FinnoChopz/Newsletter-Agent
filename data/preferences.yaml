@@ -1,0 +1,73 @@
+user:
+  name: Finn
+  digest_name: Finn-Signal
+
+strong_interests:
+  - AI agents
+  - AI education
+  - personal AI workflows
+  - personalized AI memory systems
+  - frontier AI labs
+  - Apple
+  - Google
+  - wearable AI
+  - new paradigms for AI (like JEPA)
+  - AI hardware
+  - local models (if the frontier is advancing)
+  - meaningful advances in AI overall
+  - AI interpretability and alignment (if the frontier is advancing)
+  - behavioral finance
+  - cognitive science
+  - startups
+  - venture capital
+  - frontier technology
+  - frontier science
+  - frontier mathematics (if/make understandable)
+  - physics (if/make understandable)
+  - quantum/quantum computing (if/make understandable)
+  - geopolitics (and power dynamics)
+  - china (if its related to technology, geopolitics, or economics)
+  - history
+  - neuroscience and how the brain works (if/make understandable)
+  - psychology (if/make understandable)
+  - philosophy (if/make understandable)
+  - american politics
+
+
+medium_interests:
+  - markets
+  - investing
+  - data centers
+  - space technology
+  - defense technology
+  - productivity
+  - science
+  - education technology
+  - cybersecurity
+  - regulation around tech or ai
+  - health and biology 
+
+
+always_include_if_major:
+  - war
+  - major natural disaster
+  - financial crisis
+  - major AI breakthrough
+  - major regulation
+  - major cybersecurity incident
+  - historically unusual event
+  - anything that is truly shocking, or will be talked about by everyone for at least a week
+
+digest_style:
+  max_items: 8
+  tone: concise, sharp, useful, slightly playful
+  include_why_finn_cares: true
+  include_why_world_cares: true
+
+content_rules:
+  usually_skip:
+    - sponsorships
+    - ads
+    - referral links
+    - unsubscribe text
+    - generic promotions

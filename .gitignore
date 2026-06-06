@@ -1,0 +1,24 @@
+# secrets
+.env
+credentials.json
+token.json
+
+# local runtime state
+outputs/
+logs/
+newsletters/
+
+# personal/generated data
+data/feedback_log.jsonl
+data/learned_preferences.yaml
+data/newsletter_sources.generated.yaml
+data/newsletter_sources.rejected.yaml
+data/processed_feedback_ids.json
+
+# python/local
+.venv/
+__pycache__/
+*.pyc
+
+# mac
+.DS_Store

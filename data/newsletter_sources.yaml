@@ -1,0 +1,12 @@
+sources:
+  - name: TLDR
+    senders:
+      - dan@tldrnewsletter.com
+      - newsletter@tldrnewsletter.com
+      - tldr@tldr.tech
+    enabled: true
+
+  - name: Google Developer Profile
+    senders:
+      - googledev-noreply@google.com
+    enabled: false
