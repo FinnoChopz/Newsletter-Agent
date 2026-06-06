@@ -9,7 +9,6 @@ from app.config import (
     get_bcc_recipients,
     get_feedback_base_url,
     get_feedback_email,
-    get_feedback_secret,
     get_int_env,
     get_main_model,
     get_cheap_model,
@@ -208,7 +207,6 @@ def main():
         digest_id=digest_id,
         feedback_email=get_feedback_email(),
         feedback_base_url=get_feedback_base_url(),
-        feedback_secret=get_feedback_secret(),
     )
 
     paths = write_outputs(

@@ -49,7 +49,3 @@ def get_feedback_email() -> str:
 
 def get_feedback_base_url() -> str:
     return os.getenv("FINN_SIGNAL_FEEDBACK_BASE_URL", "").strip().rstrip("/")
-
-
-def get_feedback_secret() -> str:
-    return os.getenv("FINN_SIGNAL_FEEDBACK_SECRET", "").strip()

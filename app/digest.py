@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
 from html import escape
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -31,18 +29,12 @@ def mailto_link(
     return f"mailto:{recipient}?subject={subject}&body={body}"
 
 
-def feedback_signature(secret: str, digest_id: str, item_number: int, rating: int) -> str:
-    message = f"{digest_id}:{item_number}:{rating}".encode("utf-8")
-    return hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
-
-
 def feedback_link(
     feedback_email: str,
     digest_id: str,
     item_number: int,
     rating: int,
     feedback_base_url: str | None = None,
-    feedback_secret: str | None = None,
 ) -> str:
     if not feedback_base_url:
         return mailto_link(feedback_email, digest_id, item_number, rating)
@@ -52,14 +44,6 @@ def feedback_link(
         "item": str(item_number),
         "rating": str(rating),
     }
-
-    if feedback_secret:
-        params["sig"] = feedback_signature(
-            feedback_secret,
-            digest_id,
-            item_number,
-            rating,
-        )
 
     return f"{feedback_base_url.rstrip('/')}/api/feedback?{urlencode(params)}"
 
@@ -85,7 +69,6 @@ def render_item_card(
     digest_id: str,
     feedback_email: str,
     feedback_base_url: str | None = None,
-    feedback_secret: str | None = None,
     accent: str = "#111827",
 ) -> str:
     number = int(item.get("item_number") or 0)
@@ -102,7 +85,6 @@ def render_item_card(
         number,
         5,
         feedback_base_url=feedback_base_url,
-        feedback_secret=feedback_secret,
     )
     href_less = feedback_link(
         feedback_email,
@@ -110,7 +92,6 @@ def render_item_card(
         number,
         1,
         feedback_base_url=feedback_base_url,
-        feedback_secret=feedback_secret,
     )
 
     return f"""
@@ -142,7 +123,6 @@ def render_skipped_item(
     digest_id: str,
     feedback_email: str,
     feedback_base_url: str | None = None,
-    feedback_secret: str | None = None,
 ) -> str:
     number = int(item.get("item_number") or 0)
     title = escape(str(item.get("title") or "Untitled"))
@@ -154,7 +134,6 @@ def render_skipped_item(
         number,
         5,
         feedback_base_url=feedback_base_url,
-        feedback_secret=feedback_secret,
     )
     href_less = feedback_link(
         feedback_email,
@@ -162,7 +141,6 @@ def render_skipped_item(
         number,
         1,
         feedback_base_url=feedback_base_url,
-        feedback_secret=feedback_secret,
     )
 
     return f"""
@@ -186,7 +164,6 @@ def render_html_digest(
     digest_id: str,
     feedback_email: str,
     feedback_base_url: str | None = None,
-    feedback_secret: str | None = None,
 ) -> str:
     sections = ranked_data.get("digest_sections") or {}
     top_signals = sections.get("top_signals") or []
@@ -199,7 +176,6 @@ def render_html_digest(
             digest_id,
             feedback_email,
             feedback_base_url=feedback_base_url,
-            feedback_secret=feedback_secret,
         )
         for item in top_signals
     )
@@ -210,7 +186,6 @@ def render_html_digest(
             digest_id,
             feedback_email,
             feedback_base_url=feedback_base_url,
-            feedback_secret=feedback_secret,
             accent="#7c2d12",
         )
         if strange
@@ -223,7 +198,6 @@ def render_html_digest(
             digest_id,
             feedback_email,
             feedback_base_url=feedback_base_url,
-            feedback_secret=feedback_secret,
         )
         for item in skipped
     )

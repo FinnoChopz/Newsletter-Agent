@@ -1,5 +1,3 @@
-import hashlib
-import hmac
 import json
 import os
 from html import escape
@@ -9,11 +7,6 @@ from urllib.request import Request, urlopen
 
 
 RESEND_API_URL = "https://api.resend.com/emails"
-
-
-def feedback_signature(secret: str, digest_id: str, item_number: int, rating: int) -> str:
-    message = f"{digest_id}:{item_number}:{rating}".encode("utf-8")
-    return hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
 def html_page(title: str, body: str, status: int = 200) -> tuple[int, bytes]:
@@ -54,7 +47,6 @@ def validate_params(params: dict[str, list[str]]) -> tuple[dict, str | None]:
     digest_id = (first_param(params, "digest_id") or "").strip()
     item_number = parse_int(first_param(params, "item"))
     rating = parse_int(first_param(params, "rating"))
-    sig = (first_param(params, "sig") or "").strip()
 
     if not digest_id or len(digest_id) > 100:
         return {}, "Missing or invalid digest id."
@@ -65,17 +57,10 @@ def validate_params(params: dict[str, list[str]]) -> tuple[dict, str | None]:
     if rating is None or rating < 1 or rating > 5:
         return {}, "Missing or invalid rating."
 
-    secret = os.environ.get("FINN_SIGNAL_FEEDBACK_SECRET", "").strip()
-    if secret:
-        expected = feedback_signature(secret, digest_id, item_number, rating)
-        if not sig or not hmac.compare_digest(sig, expected):
-            return {}, "Invalid feedback signature."
-
     return {
         "digest_id": digest_id,
         "item_number": item_number,
         "rating": rating,
-        "sig": sig,
     }, None
 
 
@@ -95,9 +80,6 @@ def confirmation_form(event: dict) -> str:
         "item": str(event["item_number"]),
         "rating": str(event["rating"]),
     }
-
-    if event.get("sig"):
-        params["sig"] = event["sig"]
 
     hidden_inputs = "\n".join(
         f'<input type="hidden" name="{escape(key)}" value="{escape(value)}">'

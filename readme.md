@@ -31,7 +31,6 @@ FINN_SIGNAL_RECIPIENTS=fmccooe@gmail.com
 FINN_SIGNAL_BCC=amccooe@gmail.com
 FINN_SIGNAL_FEEDBACK_EMAIL=fmccooe@gmail.com
 FINN_SIGNAL_FEEDBACK_BASE_URL=https://your-finn-signal-project.vercel.app
-FINN_SIGNAL_FEEDBACK_SECRET=generate-a-long-random-secret
 FINN_SIGNAL_DAYS=7
 FINN_SIGNAL_MAX_EMAILS=25
 ```
@@ -104,7 +103,7 @@ When `FINN_SIGNAL_FEEDBACK_BASE_URL` is set, the buttons point to:
 https://your-finn-signal-project.vercel.app/api/feedback
 ```
 
-Each link includes a signed digest id, item number, and rating. The hosted endpoint opens a confirmation page first, then sends a structured feedback email back to Gmail after confirmation. This avoids accidental ratings from email link scanners.
+Each link includes the digest id, item number, and rating. The hosted endpoint opens a confirmation page first, then sends a structured feedback email back to Gmail after confirmation. This avoids accidental ratings from email link scanners.
 
 If `FINN_SIGNAL_FEEDBACK_BASE_URL` is not set, buttons fall back to `mailto:` links for local testing.
 
@@ -156,7 +155,6 @@ api/feedback.py
 Deploy this repository to Vercel, then set these Vercel environment variables:
 
 ```text
-FINN_SIGNAL_FEEDBACK_SECRET=same-secret-as-local-env
 RESEND_API_KEY=your_resend_api_key
 FINN_SIGNAL_FEEDBACK_TO=fmccooe@gmail.com
 FINN_SIGNAL_FEEDBACK_FROM=Finn-Signal <feedback@your-domain.com>
