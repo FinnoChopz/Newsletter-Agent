@@ -1,5 +1,8 @@
 import base64
 import json
+import socket
+import ssl
+import time
 from pathlib import Path
 
 import yaml
@@ -7,13 +10,15 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from google.auth.exceptions import TransportError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 import re
 
-from app.config import get_cheap_model
+from app.config import get_cheap_model, get_int_env
 
 def extract_email_address(sender: str) -> str:
     """
@@ -50,7 +55,10 @@ def get_gmail_service():
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            retry_operation(
+                "credential refresh",
+                lambda: creds.refresh(Request()),
+            )
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
                 "credentials.json",
@@ -104,6 +112,50 @@ def get_header(headers: list[dict], name: str) -> str:
     )
 
 
+def is_retryable_gmail_error(error: Exception) -> bool:
+    if isinstance(
+        error,
+        (
+            TimeoutError,
+            socket.timeout,
+            ssl.SSLError,
+            ConnectionError,
+            TransportError,
+        ),
+    ):
+        return True
+
+    if isinstance(error, HttpError):
+        return error.resp.status in {429, 500, 502, 503, 504}
+
+    return False
+
+
+def retry_operation(operation: str, action):
+    attempts = max(1, get_int_env("FINN_SIGNAL_GMAIL_RETRIES", 5))
+    delay_seconds = max(1, get_int_env("FINN_SIGNAL_GMAIL_RETRY_SECONDS", 30))
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return action()
+        except Exception as error:
+            if attempt == attempts or not is_retryable_gmail_error(error):
+                raise
+
+            print(
+                f"Gmail {operation} failed on attempt {attempt}/{attempts}: {error}. "
+                f"Retrying in {delay_seconds}s..."
+            )
+            time.sleep(delay_seconds)
+            delay_seconds = min(delay_seconds * 2, 300)
+
+    raise RuntimeError(f"Gmail {operation} failed unexpectedly.")
+
+
+def execute_gmail_request(build_request, operation: str) -> dict:
+    return retry_operation(operation, lambda: build_request().execute())
+
+
 def fetch_recent_emails(
     max_results: int = 100,
     query: str = "newer_than:30d -in:spam -in:trash",
@@ -114,21 +166,27 @@ def fetch_recent_emails(
     """
     service = get_gmail_service()
 
-    results = service.users().messages().list(
-        userId="me",
-        q=query,
-        maxResults=max_results,
-    ).execute()
+    results = execute_gmail_request(
+        lambda: service.users().messages().list(
+            userId="me",
+            q=query,
+            maxResults=max_results,
+        ),
+        "message list",
+    )
 
     messages = results.get("messages", [])
     emails = []
 
     for msg in messages:
-        full = service.users().messages().get(
-            userId="me",
-            id=msg["id"],
-            format="full",
-        ).execute()
+        full = execute_gmail_request(
+            lambda: service.users().messages().get(
+                userId="me",
+                id=msg["id"],
+                format="full",
+            ),
+            f"message fetch {msg['id']}",
+        )
 
         payload = full.get("payload", {})
         headers = payload.get("headers", [])

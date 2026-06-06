@@ -7,6 +7,7 @@ from openai import OpenAI
 
 from app.config import (
     get_bcc_recipients,
+    get_bool_env,
     get_feedback_base_url,
     get_feedback_email,
     get_int_env,
@@ -17,6 +18,7 @@ from app.config import (
 from app.digest import render_html_digest
 from app.email_sender import send_email
 from app.gmail_reader import fetch_recent_newsletters
+from app.manifests import save_manifest
 from app.ranking import build_digest_manifest, load_yaml_file, max_digest_items, rank_scored_items
 
 
@@ -31,6 +33,23 @@ SCORE_PROMPT = Path("prompts/score_items.md").read_text(encoding="utf-8")
 BASE_PREFERENCES_PATH = Path("data/preferences.yaml")
 LEARNED_PREFERENCES_PATH = Path("data/learned_preferences.yaml")
 NEWSLETTER_SOURCES_PATH = "data/newsletter_sources.generated.yaml"
+
+
+def maybe_process_feedback() -> None:
+    if not get_bool_env("FINN_SIGNAL_PROCESS_FEEDBACK", True):
+        return
+
+    print("Processing recent feedback replies...")
+    try:
+        from process_feedback import process_gmail_feedback
+
+        process_gmail_feedback(
+            max_results=get_int_env("FINN_SIGNAL_FEEDBACK_MAX_EMAILS", 20),
+            days=get_int_env("FINN_SIGNAL_FEEDBACK_DAYS", 14),
+            use_model=True,
+        )
+    except Exception as error:
+        print(f"Feedback processing skipped after error: {error}")
 
 
 def ask_model(system_prompt: str, user_content: str, model: str) -> str:
@@ -144,13 +163,13 @@ def write_outputs(
     extracted_path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     scored_path.write_text(json.dumps(ranked, indent=2), encoding="utf-8")
     digest_path.write_text(digest_html, encoding="utf-8")
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    saved_manifest_path = save_manifest(manifest)
 
     return {
         "extracted": extracted_path,
         "scored": scored_path,
         "digest": digest_path,
-        "manifest": manifest_path,
+        "manifest": saved_manifest_path,
     }
 
 
@@ -159,6 +178,9 @@ def main():
     created_at = datetime.now().isoformat(timespec="seconds")
     days = get_int_env("FINN_SIGNAL_DAYS", 2)
     max_emails = get_int_env("FINN_SIGNAL_MAX_EMAILS", 30)
+
+    print(f"Finn-Signal run started at {created_at}")
+    maybe_process_feedback()
 
     base_preferences_text = BASE_PREFERENCES_PATH.read_text(encoding="utf-8")
     learned_preferences_text = LEARNED_PREFERENCES_PATH.read_text(encoding="utf-8")

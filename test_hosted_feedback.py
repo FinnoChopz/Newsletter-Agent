@@ -1,7 +1,7 @@
 import unittest
 from urllib.parse import parse_qs, urlparse
 
-from api.feedback import validate_params
+from api.feedback import feedback_email_body, failure_body, validate_params
 from app.digest import feedback_link
 
 
@@ -43,6 +43,19 @@ class HostedFeedbackTests(unittest.TestCase):
                 "rating": 5,
             },
         )
+
+    def test_failure_body_includes_copyable_fallback_feedback(self):
+        event = {
+            "digest_id": "2026-06-05",
+            "item_number": 3,
+            "rating": 5,
+        }
+
+        body = failure_body(event, RuntimeError("Resend send failed: HTTP 403"))
+
+        self.assertIn("Could not save feedback", body)
+        self.assertIn("3:5", body)
+        self.assertIn("digest_id: 2026-06-05", feedback_email_body(event))
 
 
 if __name__ == "__main__":

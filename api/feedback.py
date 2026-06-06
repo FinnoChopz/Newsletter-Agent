@@ -1,12 +1,17 @@
 import json
 import os
+import base64
+from email.mime.text import MIMEText
 from html import escape
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
 RESEND_API_URL = "https://api.resend.com/emails"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 
 
 def html_page(title: str, body: str, status: int = 200) -> tuple[int, bytes]:
@@ -108,7 +113,95 @@ rating_label: {rating_label(event["rating"])}
 """
 
 
+def has_gmail_feedback_env() -> bool:
+    return all(
+        os.environ.get(name, "").strip()
+        for name in [
+            "FINN_SIGNAL_GMAIL_CLIENT_ID",
+            "FINN_SIGNAL_GMAIL_CLIENT_SECRET",
+            "FINN_SIGNAL_GMAIL_REFRESH_TOKEN",
+        ]
+    )
+
+
+def read_http_error(error: HTTPError) -> str:
+    try:
+        body = error.read().decode("utf-8", errors="replace")
+    except Exception:
+        body = ""
+
+    if body:
+        return f"HTTP {error.code}: {body}"
+
+    return f"HTTP {error.code}: {error.reason}"
+
+
+def refresh_gmail_access_token() -> str:
+    payload = urlencode(
+        {
+            "client_id": os.environ["FINN_SIGNAL_GMAIL_CLIENT_ID"].strip(),
+            "client_secret": os.environ["FINN_SIGNAL_GMAIL_CLIENT_SECRET"].strip(),
+            "refresh_token": os.environ["FINN_SIGNAL_GMAIL_REFRESH_TOKEN"].strip(),
+            "grant_type": "refresh_token",
+        }
+    ).encode("utf-8")
+    request = Request(
+        GOOGLE_TOKEN_URL,
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        raise RuntimeError(f"Gmail token refresh failed: {read_http_error(error)}")
+
+    access_token = data.get("access_token")
+    if not access_token:
+        raise RuntimeError("Gmail token refresh did not return an access token.")
+
+    return access_token
+
+
+def send_feedback_email_with_gmail(event: dict) -> None:
+    to_email = (
+        os.environ.get("FINN_SIGNAL_FEEDBACK_TO", "").strip()
+        or os.environ.get("FINN_SIGNAL_FEEDBACK_EMAIL", "").strip()
+    )
+
+    if not to_email:
+        raise RuntimeError("Missing FINN_SIGNAL_FEEDBACK_TO.")
+
+    message = MIMEText(feedback_email_body(event), "plain", "utf-8")
+    message["to"] = to_email
+    message["subject"] = f"Re: Finn-Signal - {event['digest_id']}"
+
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+    request = Request(
+        GMAIL_SEND_URL,
+        data=json.dumps({"raw": raw}).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {refresh_gmail_access_token()}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=10) as response:
+            if response.status >= 300:
+                raise RuntimeError(f"Gmail send returned status {response.status}.")
+    except HTTPError as error:
+        raise RuntimeError(f"Gmail send failed: {read_http_error(error)}")
+
+
 def send_feedback_email(event: dict) -> None:
+    if has_gmail_feedback_env():
+        send_feedback_email_with_gmail(event)
+        return
+
     api_key = os.environ.get("RESEND_API_KEY", "").strip()
     to_email = (
         os.environ.get("FINN_SIGNAL_FEEDBACK_TO", "").strip()
@@ -141,9 +234,12 @@ def send_feedback_email(event: dict) -> None:
         method="POST",
     )
 
-    with urlopen(request, timeout=10) as response:
-        if response.status >= 300:
-            raise RuntimeError(f"Resend returned status {response.status}.")
+    try:
+        with urlopen(request, timeout=10) as response:
+            if response.status >= 300:
+                raise RuntimeError(f"Resend returned status {response.status}.")
+    except HTTPError as error:
+        raise RuntimeError(f"Resend send failed: {read_http_error(error)}")
 
 
 def success_body(event: dict) -> str:
@@ -154,6 +250,18 @@ def success_body(event: dict) -> str:
         Item <strong>#{event["item_number"]}</strong> was marked <strong>{escape(rating_label(event["rating"]))}</strong>.
         You can close this tab.
       </p>
+    """
+
+
+def failure_body(event: dict, error: Exception) -> str:
+    feedback_text = escape(feedback_email_body(event))
+    return f"""
+      <div style="font-size:12px;font-weight:800;text-transform:uppercase;color:#991b1b;margin-bottom:8px;">Feedback not forwarded</div>
+      <h1 style="font-size:24px;line-height:1.2;margin:0 0 12px 0;">Could not save feedback</h1>
+      <p style="font-size:15px;line-height:1.5;margin:0 0 14px 0;color:#374151;">The hosted endpoint received your click, but could not forward it into Gmail.</p>
+      <pre style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px;color:#374151;font-size:13px;">{escape(str(error))}</pre>
+      <p style="font-size:15px;line-height:1.5;margin:14px 0 8px 0;color:#374151;">Fallback: reply to the Finn-Signal email with this text:</p>
+      <pre style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px;color:#111827;font-size:13px;">{feedback_text}</pre>
     """
 
 
@@ -201,7 +309,7 @@ class handler(BaseHTTPRequestHandler):
         except Exception as exc:
             status, body = html_page(
                 "Feedback Error",
-                f'<h1 style="font-size:24px;margin:0 0 12px 0;">Could not save feedback</h1><p>{escape(str(exc))}</p>',
+                failure_body(event, exc),
                 status=500,
             )
             self.send_html(status, body)

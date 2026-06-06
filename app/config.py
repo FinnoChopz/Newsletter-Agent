@@ -20,6 +20,14 @@ def get_int_env(name: str, default: int) -> int:
         return default
 
 
+def get_bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def parse_email_list(value: str | None) -> list[str]:
     if not value:
         return []
@@ -28,15 +36,15 @@ def parse_email_list(value: str | None) -> list[str]:
 
 
 def get_recipients() -> list[str]:
-    return parse_email_list(os.getenv("FINN_SIGNAL_RECIPIENTS")) or [
-        "fmccooe@gmail.com"
-    ]
+    recipients = parse_email_list(os.getenv("FINN_SIGNAL_RECIPIENTS"))
+    if not recipients:
+        raise RuntimeError("Set FINN_SIGNAL_RECIPIENTS in .env before sending email.")
+
+    return recipients
 
 
 def get_bcc_recipients() -> list[str]:
-    return parse_email_list(os.getenv("FINN_SIGNAL_BCC")) or [
-        "amccooe@gmail.com"
-    ]
+    return parse_email_list(os.getenv("FINN_SIGNAL_BCC"))
 
 
 def get_feedback_email() -> str:
@@ -44,7 +52,11 @@ def get_feedback_email() -> str:
     if configured:
         return configured
 
-    return get_recipients()[0]
+    recipients = parse_email_list(os.getenv("FINN_SIGNAL_RECIPIENTS"))
+    if recipients:
+        return recipients[0]
+
+    return "you@example.com"
 
 
 def get_feedback_base_url() -> str:

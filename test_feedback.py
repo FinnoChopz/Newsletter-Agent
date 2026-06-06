@@ -5,10 +5,24 @@ from pathlib import Path
 
 import yaml
 
-from app.feedback import apply_parsed_feedback, parse_feedback
+from app.feedback import apply_parsed_feedback, clean_reply_text, parse_feedback
 
 
 class FeedbackTests(unittest.TestCase):
+    def test_clean_reply_text_removes_quoted_original(self):
+        raw = """1:5
+More local models.
+
+On Sat, Jun 6, 2026 at 11:00 AM Finn McCooe <fmccooe@gmail.com> wrote:
+> Reply with feedback:
+> 1:5, 2:2, 3:4
+"""
+
+        self.assertEqual(
+            clean_reply_text(raw),
+            "1:5\nMore local models.",
+        )
+
     def test_local_parser_extracts_ratings_and_topic_adjustments(self):
         parsed = parse_feedback(
             "1:5, 2:2. More local models. Less routine market updates.",

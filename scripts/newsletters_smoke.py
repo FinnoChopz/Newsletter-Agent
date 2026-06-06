@@ -1,7 +1,7 @@
-from app.gmail_reader import fetch_recent_newsletters, build_newsletter_query
+from app.gmail_reader import build_newsletter_query, fetch_recent_newsletters
 
 
-def main():
+def main() -> None:
     query = build_newsletter_query(days=7)
     print("Query:")
     print(query)

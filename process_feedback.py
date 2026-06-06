@@ -1,30 +1,21 @@
 import argparse
-import json
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from app.feedback import (
     apply_parsed_feedback,
+    clean_reply_text,
     load_json,
     parse_feedback,
     save_json,
 )
+from app.manifests import extract_digest_id, load_manifest
 
 
 load_dotenv()
 
-MANIFEST_PATH = Path("outputs/latest_digest_manifest.json")
-PROCESSED_IDS_PATH = Path("data/processed_feedback_ids.json")
-
-
-def load_manifest(path: Path) -> dict:
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Digest manifest not found at {path}. Run python run_daily_signal.py first."
-        )
-
-    return json.loads(path.read_text(encoding="utf-8"))
+PROCESSED_IDS_PATH = "data/processed_feedback_ids.json"
 
 
 def summarize_result(label: str, result: dict) -> None:
@@ -43,11 +34,12 @@ def summarize_result(label: str, result: dict) -> None:
         print(f"Warning: {warning}")
 
 
-def process_text(raw_feedback: str, use_model: bool) -> None:
-    manifest = load_manifest(MANIFEST_PATH)
-    parsed = parse_feedback(raw_feedback, use_model=use_model)
+def process_text(raw_feedback: str, use_model: bool, digest_id: str | None = None) -> None:
+    cleaned_feedback = clean_reply_text(raw_feedback)
+    manifest = load_manifest(digest_id or extract_digest_id(raw_feedback))
+    parsed = parse_feedback(cleaned_feedback, use_model=use_model)
     result = apply_parsed_feedback(
-        raw_feedback=raw_feedback,
+        raw_feedback=cleaned_feedback,
         parsed_feedback=parsed,
         manifest=manifest,
     )
@@ -57,7 +49,6 @@ def process_text(raw_feedback: str, use_model: bool) -> None:
 def process_gmail_feedback(max_results: int, days: int, use_model: bool) -> None:
     from app.gmail_reader import fetch_recent_emails
 
-    manifest = load_manifest(MANIFEST_PATH)
     processed_ids = set(load_json(PROCESSED_IDS_PATH, []))
     query = f'subject:"Re: Finn-Signal" newer_than:{days}d -in:spam -in:trash'
 
@@ -71,11 +62,16 @@ def process_gmail_feedback(max_results: int, days: int, use_model: bool) -> None
 
         new_count += 1
         raw_feedback = email.get("text", "")
+        cleaned_feedback = clean_reply_text(raw_feedback)
 
         try:
-            parsed = parse_feedback(raw_feedback, use_model=use_model)
+            digest_id = extract_digest_id(
+                f"{email.get('subject', '')}\n{raw_feedback}"
+            )
+            manifest = load_manifest(digest_id)
+            parsed = parse_feedback(cleaned_feedback, use_model=use_model)
             result = apply_parsed_feedback(
-                raw_feedback=raw_feedback,
+                raw_feedback=cleaned_feedback,
                 parsed_feedback=parsed,
                 manifest=manifest,
                 message_id=message_id,
@@ -86,13 +82,14 @@ def process_gmail_feedback(max_results: int, days: int, use_model: bool) -> None
             print(f"Failed to process feedback email {message_id}: {error}")
             print(raw_feedback[:1500])
 
-    save_json(PROCESSED_IDS_PATH, sorted(processed_ids))
+    save_json(Path(PROCESSED_IDS_PATH), sorted(processed_ids))
     print(f"Processed {new_count} new feedback email(s).")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Process Finn-Signal feedback.")
     parser.add_argument("--text", help="Process raw feedback text directly.")
+    parser.add_argument("--digest-id", help="Use a specific digest manifest.")
     parser.add_argument("--max-results", type=int, default=20)
     parser.add_argument("--days", type=int, default=14)
     parser.add_argument(
@@ -105,7 +102,7 @@ def main() -> None:
     use_model = not args.no_model
 
     if args.text:
-        process_text(args.text, use_model=use_model)
+        process_text(args.text, use_model=use_model, digest_id=args.digest_id)
         return
 
     process_gmail_feedback(

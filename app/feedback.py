@@ -152,6 +152,31 @@ def strip_rating_text(raw_feedback: str) -> str:
     return re.sub(r"#?\d+\s*[:=]\s*[1-5]\b", " ", raw_feedback)
 
 
+def clean_reply_text(raw_feedback: str) -> str:
+    lines = raw_feedback.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    kept = []
+
+    quote_patterns = [
+        r"^On .+ wrote:$",
+        r"^-+ Forwarded message -+$",
+        r"^From:\s+",
+        r"^Sent from my ",
+    ]
+
+    for line in lines:
+        stripped = line.strip()
+        if any(re.search(pattern, stripped, flags=re.I) for pattern in quote_patterns):
+            break
+
+        if stripped.startswith(">"):
+            continue
+
+        kept.append(line)
+
+    cleaned = "\n".join(kept).strip()
+    return cleaned or raw_feedback.strip()
+
+
 def clean_topic_phrase(phrase: str) -> str:
     cleaned = normalize_text(phrase)
     cleaned = re.sub(r"^(the|a|an)\s+", "", cleaned, flags=re.I)
