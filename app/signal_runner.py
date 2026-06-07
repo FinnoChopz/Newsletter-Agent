@@ -184,12 +184,19 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
         learned_preferences_text=learned_preferences_text,
         learned_preferences=learned_preferences,
     )
-    manifest = build_digest_manifest(ranked, digest_id=digest_id, created_at=created_at)
+    user_name = str(profile.get("display_name") or "you")
+    manifest = build_digest_manifest(
+        ranked,
+        digest_id=digest_id,
+        created_at=created_at,
+        user_name=user_name,
+    )
     digest_html = render_html_digest(
         ranked_data=ranked,
         digest_id=digest_id,
         feedback_email=profile["email"],
         feedback_base_url=get_feedback_base_url(),
+        user_name=user_name,
     )
     output_paths = write_profile_outputs(
         profile_id=profile_id,

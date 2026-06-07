@@ -29,7 +29,7 @@ Rules:
 - Mark sponsorships with "is_sponsor": true.
 - Do not include sponsor items unless they contain genuinely useful information.
 - Do not score importance yet.
-- Do not decide whether Finn cares yet.
+- Do not decide whether the profile user cares yet.
 - Do not invent links.
 - If no link is visible, use null.
 - Keep summaries concise.

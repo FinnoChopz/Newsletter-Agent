@@ -111,6 +111,7 @@ class WebConsoleTests(unittest.TestCase):
         self.assertIn('data-tab="rankings"', html)
         self.assertIn('id="rankingList"', html)
         self.assertIn('id="guideWidget"', html)
+        self.assertIn('name="interests"', html)
 
 
 if __name__ == "__main__":

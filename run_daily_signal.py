@@ -130,7 +130,7 @@ def score_and_rank_items(
     scored_text = ask_model(
         SCORE_PROMPT,
         f"""
-Base Finn preferences:
+Base user preferences:
 {base_preferences_text}
 
 Learned preferences from prior feedback:
@@ -219,10 +219,12 @@ def main():
         learned_preferences_text=learned_preferences_text,
         learned_preferences=learned_preferences,
     )
+    user_name = str((base_preferences.get("user") or {}).get("name") or "you")
     manifest = build_digest_manifest(
         ranked,
         digest_id=digest_id,
         created_at=created_at,
+        user_name=user_name,
     )
 
     print("Writing digest...")
@@ -231,6 +233,7 @@ def main():
         digest_id=digest_id,
         feedback_email=get_feedback_email(),
         feedback_base_url=get_feedback_base_url(),
+        user_name=user_name,
     )
 
     paths = write_outputs(

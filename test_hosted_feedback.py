@@ -45,10 +45,13 @@ class HostedFeedbackTests(unittest.TestCase):
             digest_id="demo-2026-06-07",
             feedback_email="finn@example.com",
             feedback_base_url="https://finn-signal.onrender.com",
+            user_name="Amelia",
         )
 
         self.assertIn("Rate + chat about this digest", html)
         self.assertIn("https://finn-signal.onrender.com/feedback?digest_id=demo-2026-06-07", html)
+        self.assertIn("Why Amelia cares", html)
+        self.assertIn("Personal 8.0", html)
 
     def test_endpoint_accepts_valid_plain_feedback_params(self):
         event, error = validate_params(

@@ -6,6 +6,7 @@ from app.profiles import (
     create_profile,
     list_profiles,
     profile_paths,
+    read_yaml,
     read_sources,
     update_schedule,
     upsert_source,
@@ -15,13 +16,23 @@ from app.profiles import (
 class ProfileTests(unittest.TestCase):
     def test_create_profile_initializes_user_files(self):
         with tempfile.TemporaryDirectory() as tmp:
-            profile = create_profile("Amelia", "amelia@example.com", root=tmp)
+            profile = create_profile(
+                "Amelia",
+                "amelia@example.com",
+                interests="climate tech, food writing\npublic health",
+                root=tmp,
+            )
             paths = profile_paths(profile["id"], root=tmp)
+            preferences = read_yaml(paths.preferences, {})
 
             self.assertEqual(profile["display_name"], "Amelia")
+            self.assertEqual(profile["interests"], ["climate tech", "food writing", "public health"])
             self.assertTrue(paths.meta.exists())
             self.assertTrue(paths.sources.exists())
             self.assertTrue(paths.preferences.exists())
+            self.assertEqual(preferences["user"]["name"], "Amelia")
+            self.assertEqual(preferences["strong_interests"], ["climate tech", "food writing", "public health"])
+            self.assertNotIn("AI agents", preferences["strong_interests"])
             self.assertEqual(read_sources(profile["id"], root=tmp), [])
 
     def test_upsert_source_replaces_matching_sender(self):

@@ -84,7 +84,7 @@ def score_items(extracted_json: str) -> str:
         f"""
 
 
-Finn preferences:
+User preferences:
 {PREFERENCES}
 
 Learned preferences:
@@ -148,4 +148,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

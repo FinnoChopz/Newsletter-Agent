@@ -326,6 +326,7 @@ def build_digest_manifest(
     ranked_data: dict[str, Any],
     digest_id: str,
     created_at: str | None = None,
+    user_name: str | None = None,
 ) -> dict[str, Any]:
     sections = ranked_data.get("digest_sections") or {}
     items = []
@@ -344,5 +345,6 @@ def build_digest_manifest(
         "digest_id": digest_id,
         "created_at": created_at or datetime.now().isoformat(timespec="seconds"),
         "digest_version": "v3",
+        "user_name": user_name or "you",
         "items": items,
     }

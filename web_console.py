@@ -616,6 +616,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 profile = create_profile(
                     display_name=str(body.get("display_name", "")),
                     email=str(body.get("email", "")),
+                    interests=str(body.get("interests", "")),
                 )
                 self.send_json({"profile": profile}, status=201)
                 return
@@ -820,6 +821,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             return
 
         manifest = load_manifest(digest_id)
+        user_name = str(manifest.get("user_name") or "the user")
         response = openai_client.responses.create(
             model=get_cheap_model(),
             input=[
@@ -827,6 +829,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     "role": "system",
                     "content": (
                         "You are Finn-Signal's article assistant. Answer only from the provided digest articles. "
+                        f"This digest was personalized for {user_name}. "
                         "Be concise, cite article numbers and titles, and say when the digest does not contain enough information."
                     ),
                 },

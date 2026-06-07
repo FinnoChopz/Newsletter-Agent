@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -78,12 +77,59 @@ def write_yaml(path: Path, data: Any) -> None:
     path.write_text(yaml.dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
-def default_profile(display_name: str, email: str, profile_id: str) -> dict[str, Any]:
+def split_interest_text(raw: str | list[str] | None) -> list[str]:
+    if isinstance(raw, list):
+        values = raw
+    else:
+        values = re.split(r"[\n,;]+", raw or "")
+    seen = set()
+    interests = []
+    for value in values:
+        interest = str(value).strip()
+        key = interest.lower()
+        if not interest or key in seen:
+            continue
+        interests.append(interest)
+        seen.add(key)
+    return interests
+
+
+def profile_preferences(display_name: str, email: str, interests: list[str]) -> dict[str, Any]:
+    base = read_yaml(BASE_PREFERENCES_PATH, {})
+    user_name = display_name.strip() or email
+    digest_style = dict(base.get("digest_style") or {})
+    digest_style["include_why_user_cares"] = True
+    digest_style.pop("include_why_finn_cares", None)
+
+    return {
+        "user": {
+            "name": user_name,
+            "digest_name": base.get("user", {}).get("digest_name", "Finn-Signal"),
+        },
+        "strong_interests": interests,
+        "medium_interests": [],
+        "always_include_if_major": base.get("always_include_if_major") or [],
+        "digest_style": digest_style,
+        "content_rules": base.get("content_rules") or {},
+        "onboarding": {
+            "raw_interests": interests,
+            "created_from": "profile_onboarding",
+        },
+    }
+
+
+def default_profile(
+    display_name: str,
+    email: str,
+    profile_id: str,
+    interests: list[str] | None = None,
+) -> dict[str, Any]:
     now = datetime.now().isoformat(timespec="seconds")
     return {
         "id": profile_id,
         "display_name": display_name.strip() or email,
         "email": email.strip(),
+        "interests": interests or [],
         "created_at": now,
         "updated_at": now,
         "schedule": {
@@ -97,11 +143,13 @@ def default_profile(display_name: str, email: str, profile_id: str) -> dict[str,
 def create_profile(
     display_name: str,
     email: str,
+    interests: str | list[str] | None = None,
     root: str | Path | None = None,
 ) -> dict[str, Any]:
     email = email.strip()
     if "@" not in email:
         raise ValueError("Enter a valid email address.")
+    interest_list = split_interest_text(interests)
 
     base_id = slugify_user_id(email)
     profile_id = base_id
@@ -113,13 +161,10 @@ def create_profile(
     paths = profile_paths(profile_id, root)
     paths.root.mkdir(parents=True, exist_ok=True)
 
-    profile = default_profile(display_name, email, profile_id)
+    profile = default_profile(display_name, email, profile_id, interest_list)
     write_json(paths.meta, profile)
 
-    if BASE_PREFERENCES_PATH.exists():
-        shutil.copyfile(BASE_PREFERENCES_PATH, paths.preferences)
-    else:
-        write_yaml(paths.preferences, {})
+    write_yaml(paths.preferences, profile_preferences(display_name, email, interest_list))
 
     write_yaml(paths.learned_preferences, {"topic_weights": {}, "source_weights": {}})
     write_yaml(paths.sources, {"sources": []})

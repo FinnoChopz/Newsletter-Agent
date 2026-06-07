@@ -10,10 +10,10 @@ from app.ranking import item_source, to_score
 def format_score(item: dict[str, Any]) -> str:
     scores = item.get("scores") or {}
     final_score = to_score(scores.get("final_score"))
-    finn = to_score(scores.get("finn_relevance"))
+    personal = to_score(scores.get("finn_relevance"))
     world = to_score(scores.get("global_importance"))
 
-    return f"{final_score:.1f} overall | Finn {finn:.1f} | World {world:.1f}"
+    return f"{final_score:.1f} overall | Personal {personal:.1f} | World {world:.1f}"
 
 
 def item_url(item: dict[str, Any]) -> str:
@@ -83,15 +83,17 @@ def render_item_card(
     digest_id: str,
     feedback_email: str,
     feedback_base_url: str | None = None,
+    user_name: str = "you",
     accent: str = "#111827",
 ) -> str:
     number = int(item.get("item_number") or 0)
     title = escape(str(item.get("title") or "Untitled"))
     source = escape(item_source(item))
     summary = escape(str(item.get("summary") or ""))
-    why_finn = escape(str(item.get("why_finn_cares") or ""))
+    why_user = escape(str(item.get("why_finn_cares") or ""))
     why_world = escape(str(item.get("why_world_cares") or ""))
     score = escape(format_score(item))
+    user_label = escape(user_name.strip() or "you")
     url = item_url(item)
 
     href_more = feedback_link(
@@ -129,7 +131,7 @@ def render_item_card(
                 <div style="font-size:12px;line-height:1.4;font-weight:800;letter-spacing:0;text-transform:uppercase;color:{accent};">#{number} &middot; {source}</div>
                 <h2 style="font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:1.2;margin:8px 0 10px 0;color:#111827;">{title_html}</h2>
                 <p style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;margin:0 0 12px 0;color:#1f2937;">{summary}</p>
-                <p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;margin:0 0 8px 0;color:#374151;"><strong>Why Finn cares:</strong> {why_finn}</p>
+                <p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;margin:0 0 8px 0;color:#374151;"><strong>Why {user_label} cares:</strong> {why_user}</p>
                 <p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;margin:0 0 12px 0;color:#374151;"><strong>Why the world cares:</strong> {why_world}</p>
                 <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;color:#64748b;">{score}</div>
                 <div>
@@ -206,6 +208,7 @@ def render_html_digest(
     digest_id: str,
     feedback_email: str,
     feedback_base_url: str | None = None,
+    user_name: str = "you",
 ) -> str:
     sections = ranked_data.get("digest_sections") or {}
     top_signals = sections.get("top_signals") or []
@@ -219,6 +222,7 @@ def render_html_digest(
             digest_id,
             feedback_email,
             feedback_base_url=feedback_base_url,
+            user_name=user_name,
         )
         for item in top_signals
     )
@@ -229,6 +233,7 @@ def render_html_digest(
             digest_id,
             feedback_email,
             feedback_base_url=feedback_base_url,
+            user_name=user_name,
             accent="#7c2d12",
         )
         if strange

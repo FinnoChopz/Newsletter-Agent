@@ -289,10 +289,12 @@ def build_training_digest(scenario: str) -> tuple[str, dict, str]:
         learned_preferences=learned_preferences,
         max_items=max_digest_items(base_preferences),
     )
+    user_name = str((base_preferences.get("user") or {}).get("name") or "you")
     manifest = build_digest_manifest(
         ranked,
         digest_id=digest_id,
         created_at=datetime.now().isoformat(timespec="seconds"),
+        user_name=user_name,
     )
     manifest["training"] = True
     manifest["scenario"] = scenario
@@ -302,6 +304,7 @@ def build_training_digest(scenario: str) -> tuple[str, dict, str]:
         digest_id=digest_id,
         feedback_email=get_feedback_email(),
         feedback_base_url=get_feedback_base_url(),
+        user_name=user_name,
     )
 
     return digest_id, manifest, digest_html
