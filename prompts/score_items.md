@@ -34,6 +34,8 @@ Output format:
       "title": "...",
       "section": "...",
       "summary": "...",
+      "url": null,
+      "newsletter_name": "...",
       "topic_tags": ["..."],
       "scores": {
         "finn_relevance": 0,
@@ -52,6 +54,8 @@ Output format:
 
 Rules:
 - Be selective.
+- Preserve each item's original url, newsletter_name, and source metadata exactly when provided.
+- Do not invent URLs. If an extracted item's url is null, keep it null.
 - Sponsorships should usually score low unless genuinely useful.
 - “Always include if major” overrides personal taste.
 - Learned preferences can change Finn relevance, but global importance must still

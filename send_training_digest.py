@@ -34,10 +34,12 @@ def item(
     source: str,
     why_finn: str,
     why_world: str,
+    url: str | None = None,
 ) -> dict:
     return {
         "title": title,
         "summary": summary,
+        "url": url,
         "topic_tags": tags,
         "source": source,
         "newsletter_name": source,
@@ -69,6 +71,7 @@ def broad_calibration_items() -> list[dict]:
             "Training Set",
             "This tests how strongly local models and practical AI tools should be favored.",
             "Cheap capable local models change access, privacy, and software workflows.",
+            url="https://example.com/local-model-breakthrough",
         ),
         item(
             "Routine market recap: indexes drift after mixed earnings",

@@ -18,6 +18,7 @@ from app.config import (
 from app.digest import render_html_digest
 from app.email_sender import send_email
 from app.gmail_reader import fetch_recent_newsletters
+from app.item_metadata import preserve_scored_item_metadata
 from app.manifests import save_manifest
 from app.ranking import build_digest_manifest, load_yaml_file, max_digest_items, rank_scored_items
 
@@ -142,6 +143,7 @@ Extracted items:
     )
 
     scored = parse_json(scored_text)
+    scored = preserve_scored_item_metadata(scored, merged_items)
     return rank_scored_items(
         scored,
         learned_preferences=learned_preferences,

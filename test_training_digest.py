@@ -21,6 +21,8 @@ class TrainingDigestTests(unittest.TestCase):
         self.assertGreaterEqual(len(manifest["items"]), 3)
         self.assertIn("More like this", html)
         self.assertIn("Less like this", html)
+        self.assertIn("Read full piece", html)
+        self.assertIn("https://example.com/local-model-breakthrough", html)
 
 
 if __name__ == "__main__":

@@ -68,6 +68,68 @@ python scripts/newsletters_smoke.py
 make test
 ```
 
+## Phase 2 Web Console
+
+Run the local web console:
+
+```bash
+python web_console.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:8787
+```
+
+The console supports:
+
+- creating a profile per user
+- connecting that user's Gmail through Google OAuth
+- scanning Gmail for likely newsletters and approving selected senders
+- manually adding newsletter senders
+- asking the discovery agent for newsletters from a natural-language topic request
+- setting each profile's digest time and frequency
+- sending a test digest for the selected profile
+
+Profile data lives under:
+
+```text
+data/users/<profile-id>/
+```
+
+Those folders are gitignored because they can contain Gmail tokens.
+
+To install the profile scheduler from the UI, use the Schedule tab. It creates one local macOS LaunchAgent that checks every minute and sends digests for profiles that are due. The underlying runner is:
+
+```bash
+python run_scheduled_profiles.py
+```
+
+Natural-language newsletter discovery uses the configured OpenAI key. It asks for publications, likely sender addresses/domains, and subscription URLs. Adding a discovered source makes Finn-Signal watch for that sender/domain; the user may still need to subscribe to the publication if it is not already arriving in Gmail.
+
+### Running Modes
+
+Finn-Signal needs one always-available place to do the daily work: read Gmail, call the model, and send the digest.
+
+Local mode:
+
+- run `python web_console.py` on a Mac
+- each user connects Gmail in that local browser app
+- profile data and Gmail tokens stay in `data/users/`
+- install the Schedule tab background sender on that Mac
+
+Hosted mode:
+
+- deploy the repo as a small web service, for example on Render
+- set `FINN_SIGNAL_CONSOLE_HOST=0.0.0.0`
+- set `FINN_SIGNAL_PUBLIC_URL=https://your-app.onrender.com`
+- set `FINN_SIGNAL_USERS_DIR` to a persistent disk path, for example `/var/data/users`
+- add the hosted `/oauth2callback` URL to the Google OAuth client
+- use a persistent disk or database so Gmail tokens and profiles survive deploys
+
+Local mode is easiest for early testers. Hosted mode is the right end-state for nontechnical users because they only visit a URL, connect Gmail, choose newsletters, and set a schedule.
+
 ## Daily Run
 
 ```bash

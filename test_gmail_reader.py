@@ -1,10 +1,16 @@
+import base64
 import os
 import unittest
 from unittest.mock import patch
 
 from google.auth.exceptions import TransportError
 
-from app.gmail_reader import execute_gmail_request, is_retryable_gmail_error
+from app.gmail_reader import (
+    execute_gmail_request,
+    extract_text_from_payload,
+    html_to_text,
+    is_retryable_gmail_error,
+)
 
 
 class FakeRequest:
@@ -52,6 +58,27 @@ class GmailReaderTests(unittest.TestCase):
         self.assertEqual(result, {"messages": []})
         self.assertEqual(calls["count"], 2)
         sleep.assert_called_once_with(1)
+
+    def test_html_to_text_preserves_anchor_urls(self):
+        text = html_to_text('<p><a href="https://example.com/story">Read story</a></p>')
+
+        self.assertIn("Read story [https://example.com/story]", text)
+
+    def test_extract_text_from_payload_prefers_html_with_links(self):
+        plain = base64.urlsafe_b64encode(b"Read story").decode("utf-8")
+        html = base64.urlsafe_b64encode(
+            b'<a href="https://example.com/story">Read story</a>'
+        ).decode("utf-8")
+        payload = {
+            "parts": [
+                {"mimeType": "text/plain", "body": {"data": plain}},
+                {"mimeType": "text/html", "body": {"data": html}},
+            ]
+        }
+
+        text = extract_text_from_payload(payload)
+
+        self.assertIn("https://example.com/story", text)
 
 
 if __name__ == "__main__":

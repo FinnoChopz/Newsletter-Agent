@@ -4,8 +4,16 @@ from email.mime.text import MIMEText
 from app.gmail_reader import get_gmail_service
 
 
-def send_email(to: str, subject: str, body: str, html: bool = False, cc: str | None = None, bcc: str | None = None):
-    service = get_gmail_service()
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    html: bool = False,
+    cc: str | None = None,
+    bcc: str | None = None,
+    token_path: str = "token.json",
+):
+    service = get_gmail_service(token_path=token_path)
 
     subtype = "html" if html else "plain"
 

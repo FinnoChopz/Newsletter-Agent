@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Finn-Signal Console</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Finn-Signal</p>
+          <h1>Signal console</h1>
+          <p class="lede">A personal daily signal engine for Gmail newsletters. Set it up once, then tune it from here.</p>
+        </div>
+        <div class="profile-control">
+          <label for="profileSelect">Profile</label>
+          <select id="profileSelect"></select>
+        </div>
+      </header>
+
+      <nav class="tabs" aria-label="Console sections">
+        <button class="tab is-active" data-tab="onboarding">Onboarding</button>
+        <button class="tab" data-tab="sources">Sources</button>
+        <button class="tab" data-tab="discover">Discover</button>
+        <button class="tab" data-tab="schedule">Schedule</button>
+        <button class="tab" data-tab="runs">Runs</button>
+      </nav>
+
+      <section class="status-strip" id="statusStrip"></section>
+
+      <section class="view is-active" id="onboarding">
+        <div class="setup-band">
+          <div>
+            <p class="eyebrow">How it actually runs</p>
+            <h2>Finn-Signal needs one always-awake runner.</h2>
+          </div>
+          <div class="setup-grid">
+            <article>
+              <strong>Best for family testing</strong>
+              <span>Run it on your Mac. The Mac must be awake at delivery time, though Power Nap / a desktop Mac is usually fine.</span>
+            </article>
+            <article>
+              <strong>Best end-state</strong>
+              <span>Host it on Render with a persistent disk. Then their computers can be off; Render does the daily work.</span>
+            </article>
+            <article>
+              <strong>What they do</strong>
+              <span>Open the page, create profile, connect Gmail, approve newsletters, choose delivery time.</span>
+            </article>
+          </div>
+        </div>
+
+        <div class="rail">
+          <div class="rail-step">
+            <span>1</span>
+            <p>Create a profile for the person receiving the digest.</p>
+          </div>
+          <div class="rail-step">
+            <span>2</span>
+            <p>Connect their Gmail so Finn-Signal can read newsletters and send the digest.</p>
+          </div>
+          <div class="rail-step">
+            <span>3</span>
+            <p>Scan the inbox, approve good newsletter senders, then set the schedule.</p>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <form class="panel" id="profileForm">
+            <div class="panel-head">
+              <h2>Create profile</h2>
+              <span class="step-pill">Step 1</span>
+            </div>
+            <label>
+              Name
+              <input name="display_name" autocomplete="name" placeholder="Amelia">
+            </label>
+            <label>
+              Gmail address
+              <input name="email" type="email" autocomplete="email" placeholder="name@gmail.com" required>
+            </label>
+            <button type="submit">Create</button>
+          </form>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Connect Gmail</h2>
+              <span class="step-pill">Step 2</span>
+            </div>
+            <p class="quiet">Google will ask for Gmail read/send access. This lets Finn-Signal read newsletters and send the daily digest from that account.</p>
+            <button id="connectGmail">Connect selected Gmail</button>
+            <div class="result" id="gmailResult"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Inbox scan</h2>
+            <span class="step-pill">Step 3</span>
+          </div>
+          <p class="quiet">This scans recent mail for newsletter-shaped senders. You choose which ones should feed the digest.</p>
+          <div class="inline-controls">
+            <label>
+              Days
+              <input id="scanDays" type="number" min="7" max="90" value="30">
+            </label>
+            <label>
+              Max emails
+              <input id="scanMax" type="number" min="50" max="1000" value="300">
+            </label>
+            <button id="scanInbox">Scan Gmail</button>
+            <button id="importCandidates" class="secondary">Approve selected</button>
+          </div>
+          <div class="list" id="candidateList"></div>
+        </div>
+      </section>
+
+      <section class="view" id="sources">
+        <div class="grid two">
+          <form class="panel" id="manualSourceForm">
+            <div class="panel-head">
+              <h2>Add source</h2>
+              <span class="step-pill">Manual</span>
+            </div>
+            <label>
+              Newsletter name
+              <input name="name" placeholder="TLDR">
+            </label>
+            <label>
+              Sender emails
+              <textarea name="senders" rows="4" placeholder="newsletter@example.com"></textarea>
+            </label>
+            <button type="submit">Add source</button>
+          </form>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Approved sources</h2>
+              <span id="sourceCount" class="step-pill">0</span>
+            </div>
+            <div class="list compact" id="sourceList"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="discover">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Find newsletters</h2>
+              <span class="step-pill">Agent</span>
+          </div>
+          <textarea id="discoveryQuery" rows="4" placeholder="Add some newsletters or Substacks about the US-Iran war and the impact on oil."></textarea>
+          <div class="inline-controls">
+            <label class="checkline">
+              <input id="autoAddDiscovery" type="checkbox" checked>
+              Add recommendations to sources
+            </label>
+            <button id="runDiscovery">Find newsletters</button>
+          </div>
+          <div class="list" id="recommendationList"></div>
+        </div>
+      </section>
+
+      <section class="view" id="schedule">
+        <div class="notice">
+          Local mode cannot send while the Mac is fully asleep or off. If it wakes later that same day, Finn-Signal will catch up automatically and send once. For delivery while every laptop is off, host it on Render.
+        </div>
+        <div class="grid two">
+          <form class="panel" id="scheduleForm">
+            <div class="panel-head">
+              <h2>Delivery</h2>
+              <span class="step-pill">Profile</span>
+            </div>
+            <label>
+              Time
+              <input name="time" type="time" value="11:00">
+            </label>
+            <label>
+              Frequency
+              <select name="frequency">
+                <option value="daily">Daily</option>
+                <option value="weekdays">Weekdays</option>
+                <option value="every_other_day">Every other day</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </label>
+            <label class="checkline">
+              <input name="enabled" type="checkbox" checked>
+              Enabled
+            </label>
+            <button type="submit">Save schedule</button>
+          </form>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Computer scheduler</h2>
+              <span id="schedulerPill" class="step-pill">Not installed</span>
+            </div>
+            <p class="quiet">Install once on the computer that will send the digests.</p>
+            <button id="installScheduler">Install background sender</button>
+            <div class="result" id="scheduleResult"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="runs">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Test run</h2>
+            <span class="step-pill">Selected profile</span>
+          </div>
+          <p class="quiet">Sends one digest now using the selected profile's Gmail and approved sources.</p>
+          <button id="sendTest">Send digest now</button>
+          <pre class="output" id="runOutput"></pre>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -15,6 +15,7 @@ data/learned_preferences.yaml
 data/newsletter_sources.generated.yaml
 data/newsletter_sources.rejected.yaml
 data/processed_feedback_ids.json
+data/users/
 
 # python/local
 .venv/

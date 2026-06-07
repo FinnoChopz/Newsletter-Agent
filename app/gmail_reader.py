@@ -46,12 +46,16 @@ CLASSIFY_PROMPT = Path("prompts/classify_newsletter_sender.md").read_text(
 )
 
 
-def get_gmail_service():
+def get_gmail_service(
+    token_path: str | Path = "token.json",
+    credentials_path: str | Path = "credentials.json",
+):
     creds = None
-    token_path = Path("token.json")
+    token_path = Path(token_path)
+    credentials_path = Path(credentials_path)
 
     if token_path.exists():
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -61,12 +65,13 @@ def get_gmail_service():
             )
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                "credentials.json",
+                str(credentials_path),
                 SCOPES,
             )
             creds = flow.run_local_server(port=0)
 
-        token_path.write_text(creds.to_json())
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(creds.to_json(), encoding="utf-8")
 
     return build("gmail", "v1", credentials=creds)
 
@@ -77,30 +82,49 @@ def decode_body(data: str) -> str:
 
 
 def html_to_text(raw: str) -> str:
-    return BeautifulSoup(raw, "html.parser").get_text("\n")
+    soup = BeautifulSoup(raw, "html.parser")
+
+    for anchor in soup.find_all("a"):
+        href = (anchor.get("href") or "").strip()
+        label = anchor.get_text(" ", strip=True)
+
+        if not href:
+            continue
+
+        if label and href not in label:
+            anchor.replace_with(f"{label} [{href}]")
+        else:
+            anchor.replace_with(href)
+
+    return soup.get_text("\n")
+
+
+def collect_payload_texts(payload: dict) -> list[tuple[str, str]]:
+    body = payload.get("body", {})
+    mime_type = payload.get("mimeType", "")
+    texts: list[tuple[str, str]] = []
+
+    if body.get("data") and mime_type in ["text/plain", "text/html"]:
+        raw = decode_body(body["data"])
+        text = html_to_text(raw) if mime_type == "text/html" else raw
+        if text.strip():
+            texts.append((mime_type, text))
+
+    for part in payload.get("parts", []):
+        texts.extend(collect_payload_texts(part))
+
+    return texts
 
 
 def extract_text_from_payload(payload: dict) -> str:
-    body = payload.get("body", {})
+    texts = collect_payload_texts(payload)
 
-    if body.get("data"):
-        raw = decode_body(body["data"])
-        return html_to_text(raw)
+    for mime_type, text in texts:
+        if mime_type == "text/html":
+            return text
 
-    parts = payload.get("parts", [])
-
-    for part in parts:
-        mime_type = part.get("mimeType", "")
-        part_body = part.get("body", {})
-
-        if part_body.get("data") and mime_type in ["text/plain", "text/html"]:
-            raw = decode_body(part_body["data"])
-            return html_to_text(raw)
-
-        if part.get("parts"):
-            nested_text = extract_text_from_payload(part)
-            if nested_text:
-                return nested_text
+    if texts:
+        return texts[0][1]
 
     return ""
 
@@ -159,12 +183,13 @@ def execute_gmail_request(build_request, operation: str) -> dict:
 def fetch_recent_emails(
     max_results: int = 100,
     query: str = "newer_than:30d -in:spam -in:trash",
+    token_path: str | Path = "token.json",
 ) -> list[dict]:
     """
     Generic Gmail fetcher.
     It does not decide what is or is not a newsletter.
     """
-    service = get_gmail_service()
+    service = get_gmail_service(token_path=token_path)
 
     results = execute_gmail_request(
         lambda: service.users().messages().list(
@@ -307,7 +332,11 @@ def is_newsletter_candidate(email: dict) -> bool:
     return score >= 2
 
 
-def discover_newsletters(days: int = 30, max_results: int = 300) -> list[dict]:
+def discover_newsletters(
+    days: int = 30,
+    max_results: int = 300,
+    token_path: str | Path = "token.json",
+) -> list[dict]:
     """
     One-time onboarding scan.
 
@@ -320,6 +349,7 @@ def discover_newsletters(days: int = 30, max_results: int = 300) -> list[dict]:
     emails = fetch_recent_emails(
         max_results=max_results,
         query=f"newer_than:{days}d -in:spam -in:trash",
+        token_path=token_path,
     )
 
     print(f"Fetched {len(emails)} emails for discovery scan.")
@@ -460,6 +490,7 @@ def fetch_recent_newsletters(
     max_results: int = 25,
     days: int = 2,
     sources_path: str = "data/newsletter_sources.generated.yaml",
+    token_path: str | Path = "token.json",
 ) -> list[dict]:
     """
     Fetch only approved newsletter emails.
@@ -472,4 +503,5 @@ def fetch_recent_newsletters(
     return fetch_recent_emails(
         max_results=max_results,
         query=query,
+        token_path=token_path,
     )

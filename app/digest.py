@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from html import escape
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 from app.ranking import item_source, to_score
 
@@ -14,6 +14,14 @@ def format_score(item: dict[str, Any]) -> str:
     world = to_score(scores.get("global_importance"))
 
     return f"{final_score:.1f} overall | Finn {finn:.1f} | World {world:.1f}"
+
+
+def item_url(item: dict[str, Any]) -> str:
+    url = str(item.get("url") or item.get("link") or "").strip()
+    parsed = urlparse(url)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return url
+    return ""
 
 
 def mailto_link(
@@ -78,6 +86,7 @@ def render_item_card(
     why_finn = escape(str(item.get("why_finn_cares") or ""))
     why_world = escape(str(item.get("why_world_cares") or ""))
     score = escape(format_score(item))
+    url = item_url(item)
 
     href_more = feedback_link(
         feedback_email,
@@ -94,6 +103,17 @@ def render_item_card(
         feedback_base_url=feedback_base_url,
     )
 
+    title_html = (
+        f'<a href="{escape(url)}" style="color:#111827;text-decoration:none;">{title}</a>'
+        if url
+        else title
+    )
+    read_button = (
+        action_button("Read full piece", url, "#1d4ed8")
+        if url
+        else ""
+    )
+
     return f"""
       <tr>
         <td style="padding:16px 0;">
@@ -101,12 +121,13 @@ def render_item_card(
             <tr>
               <td style="padding:18px 18px 16px 18px;">
                 <div style="font-size:12px;line-height:1.4;font-weight:800;letter-spacing:0;text-transform:uppercase;color:{accent};">#{number} &middot; {source}</div>
-                <h2 style="font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:1.2;margin:8px 0 10px 0;color:#111827;">{title}</h2>
+                <h2 style="font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:1.2;margin:8px 0 10px 0;color:#111827;">{title_html}</h2>
                 <p style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;margin:0 0 12px 0;color:#1f2937;">{summary}</p>
                 <p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;margin:0 0 8px 0;color:#374151;"><strong>Why Finn cares:</strong> {why_finn}</p>
                 <p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;margin:0 0 12px 0;color:#374151;"><strong>Why the world cares:</strong> {why_world}</p>
                 <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;color:#64748b;">{score}</div>
                 <div>
+                  {read_button}
                   {action_button("More like this", href_more, "#166534")}
                   {action_button("Less like this", href_less, "#7f1d1d")}
                 </div>
@@ -128,6 +149,7 @@ def render_skipped_item(
     title = escape(str(item.get("title") or "Untitled"))
     source = escape(item_source(item))
     summary = escape(str(item.get("summary") or ""))
+    url = item_url(item)
     href_more = feedback_link(
         feedback_email,
         digest_id,
@@ -143,13 +165,27 @@ def render_skipped_item(
         feedback_base_url=feedback_base_url,
     )
 
+    title_html = (
+        f'<a href="{escape(url)}" style="color:#1f2937;text-decoration:none;">{title}</a>'
+        if url
+        else title
+    )
+    read_link = (
+        f'<a href="{escape(url)}" style="color:#1d4ed8;font-weight:700;text-decoration:none;">Read full piece</a>'
+        if url
+        else ""
+    )
+    separator = '<span style="color:#cbd5e1;"> &middot; </span>' if read_link else ""
+
     return f"""
       <tr>
         <td style="padding:10px 0;border-top:1px solid #e5e7eb;">
           <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45;color:#1f2937;">
-            <strong>#{number} &middot; {title}</strong>
+            <strong>#{number} &middot; {title_html}</strong>
             <span style="color:#64748b;"> &middot; {source}</span><br>
             <span>{summary}</span><br>
+            {read_link}
+            {separator}
             <a href="{href_more}" style="color:#166534;font-weight:700;text-decoration:none;">More like this</a>
             <span style="color:#cbd5e1;"> &middot; </span>
             <a href="{href_less}" style="color:#7f1d1d;font-weight:700;text-decoration:none;">Less like this</a>
