@@ -83,7 +83,12 @@ def console_port() -> int:
 
 
 def console_host() -> str:
-    return os.getenv("FINN_SIGNAL_CONSOLE_HOST", "127.0.0.1")
+    configured = os.getenv("FINN_SIGNAL_CONSOLE_HOST", "").strip()
+    if configured:
+        return configured
+    if os.getenv("PORT"):
+        return "0.0.0.0"
+    return "127.0.0.1"
 
 
 def public_base_url(port: int) -> str:

@@ -5,7 +5,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from app.profiles import create_profile
-from web_console import build_oauth_flow, parse_site_guide_output, profile_rankings, render_feedback_app
+from web_console import build_oauth_flow, console_host, parse_site_guide_output, profile_rankings, render_feedback_app
 
 
 class WebConsoleTests(unittest.TestCase):
@@ -39,6 +39,21 @@ class WebConsoleTests(unittest.TestCase):
                 os.environ.pop("FINN_SIGNAL_GOOGLE_CLIENT_CONFIG_JSON", None)
             else:
                 os.environ["FINN_SIGNAL_GOOGLE_CLIENT_CONFIG_JSON"] = previous
+
+    def test_render_port_binds_all_interfaces_by_default(self):
+        previous_port = os.environ.get("PORT")
+        previous_host = os.environ.pop("FINN_SIGNAL_CONSOLE_HOST", None)
+        os.environ["PORT"] = "10000"
+
+        try:
+            self.assertEqual(console_host(), "0.0.0.0")
+        finally:
+            if previous_port is None:
+                os.environ.pop("PORT", None)
+            else:
+                os.environ["PORT"] = previous_port
+            if previous_host is not None:
+                os.environ["FINN_SIGNAL_CONSOLE_HOST"] = previous_host
 
     def test_feedback_app_contains_rating_controls_and_chat(self):
         html = render_feedback_app(
