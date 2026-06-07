@@ -1,6 +1,7 @@
 # secrets
 .env
 .vercel-feedback.env
+.render.env
 credentials.json
 token.json
 

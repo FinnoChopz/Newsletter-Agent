@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: finn-signal
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python web_console.py
+    healthCheckPath: /healthz
+    disk:
+      name: finn-signal-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: FINN_SIGNAL_CONSOLE_HOST
+        value: 0.0.0.0
+      - key: FINN_SIGNAL_USERS_DIR
+        value: /var/data/users
+      - key: FINN_SIGNAL_ENABLE_HOSTED_SCHEDULER
+        value: true
+      - key: FINN_SIGNAL_SCHEDULER_INTERVAL_SECONDS
+        value: 300
+      - key: FINN_SIGNAL_DAYS
+        value: 7
+      - key: FINN_SIGNAL_MAX_EMAILS
+        value: 25
+      - key: FINN_SIGNAL_GMAIL_RETRIES
+        value: 5
+      - key: FINN_SIGNAL_GMAIL_RETRY_SECONDS
+        value: 30
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MAIN_MODEL
+        sync: false
+      - key: OPENAI_CHEAP_MODEL
+        sync: false
+      - key: FINN_SIGNAL_PUBLIC_URL
+        sync: false
+      - key: FINN_SIGNAL_GOOGLE_CLIENT_CONFIG_JSON
+        sync: false

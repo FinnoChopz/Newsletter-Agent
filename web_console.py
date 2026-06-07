@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import threading
+import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,6 +29,7 @@ from app.profiles import (
     write_json,
 )
 from app.scheduler import install_launch_agent, launch_agent_path
+from run_scheduled_profiles import main as run_scheduled_profiles
 from app.signal_runner import run_signal_for_profile
 
 
@@ -65,11 +68,19 @@ def build_oauth_flow(port: int, state: str | None = None) -> Flow:
     if base_url.startswith("http://localhost") or base_url.startswith("http://127.0.0.1"):
         os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
-    flow = Flow.from_client_secrets_file(
-        str(PROJECT_ROOT / "credentials.json"),
-        scopes=SCOPES,
-        state=state,
-    )
+    client_config = os.getenv("FINN_SIGNAL_GOOGLE_CLIENT_CONFIG_JSON", "").strip()
+    if client_config:
+        flow = Flow.from_client_config(
+            json.loads(client_config),
+            scopes=SCOPES,
+            state=state,
+        )
+    else:
+        flow = Flow.from_client_secrets_file(
+            str(PROJECT_ROOT / "credentials.json"),
+            scopes=SCOPES,
+            state=state,
+        )
     flow.redirect_uri = f"{base_url}/oauth2callback"
     return flow
 
@@ -142,6 +153,10 @@ class ConsoleHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         try:
             parsed = urlparse(self.path)
+            if parsed.path == "/healthz":
+                self.send_json({"ok": True})
+                return
+
             if parsed.path == "/api/state":
                 self.send_json(
                     {
@@ -371,7 +386,34 @@ def main() -> None:
     host = console_host()
     server = ThreadingHTTPServer((host, port), ConsoleHandler)
     print(f"Finn-Signal console running at {public_base_url(port)}")
+    start_hosted_scheduler_if_enabled()
     server.serve_forever()
+
+
+def bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def start_hosted_scheduler_if_enabled() -> None:
+    if not bool_env("FINN_SIGNAL_ENABLE_HOSTED_SCHEDULER", False):
+        return
+
+    interval_seconds = max(60, int(os.getenv("FINN_SIGNAL_SCHEDULER_INTERVAL_SECONDS", "300")))
+
+    def loop() -> None:
+        print(f"Hosted scheduler enabled. Checking every {interval_seconds}s.")
+        while True:
+            try:
+                run_scheduled_profiles()
+            except Exception as error:
+                print(f"Hosted scheduler error: {error}")
+            time.sleep(interval_seconds)
+
+    thread = threading.Thread(target=loop, name="finn-signal-scheduler", daemon=True)
+    thread.start()
 
 
 if __name__ == "__main__":
