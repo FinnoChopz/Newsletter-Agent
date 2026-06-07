@@ -13,8 +13,12 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from dotenv import load_dotenv
 from google_auth_oauthlib.flow import Flow
+from openai import OpenAI
 
+from app.config import get_cheap_model
+from app.feedback import apply_parsed_feedback
 from app.gmail_reader import SCOPES, classify_sender_with_model, discover_newsletters
+from app.manifests import load_manifest
 from app.newsletter_discovery import discover_recommendations, recommendation_to_source
 from app.profiles import (
     create_profile,
@@ -22,12 +26,14 @@ from app.profiles import (
     load_profile,
     profile_paths,
     read_json,
+    read_yaml,
     read_sources,
     set_source_enabled,
     update_schedule,
     upsert_source,
     write_json,
 )
+from app.ranking import item_source
 from app.scheduler import install_launch_agent, launch_agent_path
 from run_scheduled_profiles import main as run_scheduled_profiles
 from app.signal_runner import run_signal_for_profile
@@ -38,6 +44,30 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).resolve().parent
 WEB_ROOT = PROJECT_ROOT / "web"
 oauth_sessions: dict[str, dict[str, Any]] = {}
+openai_client = OpenAI()
+
+SITE_GUIDE_TARGETS = {
+    "profile_select": "#profileSelect",
+    "onboarding_tab": '[data-tab="onboarding"]',
+    "rankings_tab": '[data-tab="rankings"]',
+    "sources_tab": '[data-tab="sources"]',
+    "discover_tab": '[data-tab="discover"]',
+    "schedule_tab": '[data-tab="schedule"]',
+    "runs_tab": '[data-tab="runs"]',
+    "create_profile": "#profileForm",
+    "connect_gmail": "#connectGmail",
+    "scan_gmail": "#scanInbox",
+    "approve_sources": "#importCandidates",
+    "rankings_refresh": "#refreshRankings",
+    "rankings_send": "#rankingSendTest",
+    "ranking_list": "#rankingList",
+    "manual_source": "#manualSourceForm",
+    "approved_sources": "#sourceList",
+    "discover_agent": "#runDiscovery",
+    "schedule_form": "#scheduleForm",
+    "install_scheduler": "#installScheduler",
+    "send_test": "#sendTest",
+}
 
 
 def clean_profile_id(value: str) -> str:
@@ -61,6 +91,238 @@ def public_base_url(port: int) -> str:
     if configured:
         return configured
     return f"http://localhost:{port}"
+
+
+def profile_id_from_digest_id(digest_id: str) -> str | None:
+    parts = digest_id.rsplit("-", 3)
+    if len(parts) == 4 and all(part.isdigit() for part in parts[-3:]):
+        return parts[0]
+    return None
+
+
+def feedback_paths_for_digest(digest_id: str) -> tuple[Path, Path]:
+    profile_id = profile_id_from_digest_id(digest_id)
+    if profile_id:
+        paths = profile_paths(profile_id)
+        if paths.root.exists():
+            return paths.learned_preferences, paths.root / "feedback_log.jsonl"
+
+    return Path("data/learned_preferences.yaml"), Path("data/feedback_log.jsonl")
+
+
+def manifest_items_context(manifest: dict[str, Any]) -> str:
+    rows = []
+    for item in manifest.get("items", []):
+        rows.append(
+            {
+                "item_number": item.get("item_number"),
+                "title": item.get("title"),
+                "source": item_source(item),
+                "summary": item.get("summary"),
+                "why_finn_cares": item.get("why_finn_cares"),
+                "why_world_cares": item.get("why_world_cares"),
+                "url": item.get("url"),
+                "topic_tags": item.get("topic_tags") or [],
+            }
+        )
+    return json.dumps(rows, indent=2)
+
+
+def rating_options(selected: str) -> str:
+    options = []
+    labels = {
+        "1": "1 - no",
+        "2": "2",
+        "3": "3",
+        "4": "4",
+        "5": "5 - yes",
+    }
+    for value, label in labels.items():
+        selected_attr = " selected" if value == selected else ""
+        options.append(f'<option value="{value}"{selected_attr}>{label}</option>')
+    return "\n".join(options)
+
+
+def render_feedback_app(manifest: dict[str, Any], selected_item: str = "", selected_rating: str = "") -> str:
+    digest_id = str(manifest.get("digest_id", ""))
+    item_cards = []
+
+    for item in manifest.get("items", []):
+        item_number = str(item.get("item_number", ""))
+        selected = selected_rating if item_number == selected_item else ""
+        score_buttons = "\n".join(
+            f'<button type="button" data-score="{value}" class="{"is-selected" if selected == str(value) else ""}">{value}</button>'
+            for value in range(1, 6)
+        )
+        title = str(item.get("title") or "Untitled")
+        source = item_source(item)
+        summary = str(item.get("summary") or "")
+        url = str(item.get("url") or "").strip()
+        url_link = (
+            f'<a class="read-link" href="{escape_attr(url)}" target="_blank" rel="noreferrer">Read article</a>'
+            if url
+            else ""
+        )
+        item_cards.append(
+            f"""
+            <article class="article-card" data-item="{escape_attr(item_number)}">
+              <div>
+                <p class="kicker">#{escape_attr(item_number)} · {escape_html(source)}</p>
+                <h2>{escape_html(title)}</h2>
+                <p>{escape_html(summary)}</p>
+                {url_link}
+              </div>
+              <div class="rating-box">
+                <div class="quick">
+                  <button type="button" data-rate="5">Like</button>
+                  <button type="button" data-rate="1">Not like</button>
+                </div>
+                <div class="score-label">1-5 rating</div>
+                <div class="score-buttons" data-score-buttons>
+                  {score_buttons}
+                </div>
+                <label>
+                  Saved rating
+                  <select data-rating class="rating-select">
+                    <option value="">Skip</option>
+                    {rating_options(selected)}
+                  </select>
+                </label>
+              </div>
+            </article>
+            """
+        )
+
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Finn-Signal Feedback</title>
+    <style>
+      body {{ margin:0; background:#f7f8f3; color:#17201b; font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
+      main {{ width:min(1120px, calc(100vw - 28px)); margin:28px auto 60px; }}
+      header {{ display:grid; gap:10px; margin-bottom:20px; background:#10231c; color:#fff; border-radius:8px; padding:24px; }}
+      .eyebrow,.kicker {{ color:#c8573d; font-size:12px; font-weight:850; margin:0; text-transform:uppercase; }}
+      header .eyebrow {{ color:#f1b36d; }}
+      h1 {{ font-size:clamp(40px, 6vw, 72px); line-height:.98; margin:0; }}
+      h2 {{ font-size:22px; line-height:1.2; margin:0 0 10px; }}
+      p {{ line-height:1.48; }}
+      header p:not(.eyebrow) {{ color:#d9e6de; margin:0; max-width:820px; }}
+      .layout {{ display:grid; grid-template-columns:1.2fr .8fr; gap:18px; align-items:start; }}
+      .stack {{ display:grid; gap:12px; }}
+      .article-card,.chat,.submit-panel {{ background:#fff; border:1px solid #d9dfd8; border-radius:8px; box-shadow:0 18px 55px rgba(25,35,30,.08); padding:18px; }}
+      .article-card {{ display:grid; grid-template-columns:1fr 230px; gap:18px; }}
+      .article-card p {{ color:#68756d; margin:0; }}
+      .read-link {{ display:inline-block; margin-top:10px; color:#1d4ed8; font-weight:800; text-decoration:none; }}
+      .rating-box {{ display:grid; gap:12px; align-content:start; }}
+      .quick {{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }}
+      .score-label {{ color:#68756d; font-size:13px; font-weight:850; text-transform:uppercase; }}
+      .score-buttons {{ display:grid; grid-template-columns:repeat(5, 1fr); gap:7px; }}
+      .score-buttons button {{ background:#eef3ed; color:#17201b; min-height:42px; padding:0; }}
+      .score-buttons button:hover,.score-buttons button.is-selected {{ background:#10231c; color:#fff; }}
+      button {{ min-height:46px; border:0; border-radius:7px; background:#1d6b52; color:#fff; font-weight:800; cursor:pointer; padding:0 14px; }}
+      button.secondary,.quick button:last-child {{ background:#e7ece6; color:#17201b; }}
+      label {{ display:grid; gap:7px; color:#68756d; font-size:14px; font-weight:800; }}
+      select,textarea,input {{ width:100%; border:1px solid #d9dfd8; border-radius:7px; font:inherit; min-height:46px; padding:10px; box-sizing:border-box; }}
+      .rating-select {{ height:1px; min-height:1px; opacity:0; padding:0; position:absolute; width:1px; }}
+      textarea {{ min-height:110px; resize:vertical; }}
+      .chat {{ position:sticky; top:18px; display:grid; gap:12px; }}
+      .answer {{ background:#f2f5ee; border:1px solid #d9dfd8; border-radius:8px; min-height:80px; padding:12px; white-space:pre-wrap; }}
+      .result {{ color:#1d6b52; font-weight:800; min-height:24px; }}
+      @media (max-width: 860px) {{ .layout,.article-card {{ grid-template-columns:1fr; }} .chat {{ position:static; }} }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">Finn-Signal Feedback</p>
+        <h1>Rate this digest.</h1>
+        <p>Use Like / Not Like or tap a 1-5 score beside each article. Then ask the article assistant anything about the pieces in this email.</p>
+      </header>
+      <div class="layout">
+        <section class="stack" id="articles" data-digest-id="{escape_attr(digest_id)}">
+          {''.join(item_cards)}
+          <div class="submit-panel">
+            <label>Optional note<textarea id="note" placeholder="More AI infra, less generic market noise."></textarea></label>
+            <button id="submitFeedback">Save feedback</button>
+            <div class="result" id="feedbackResult"></div>
+          </div>
+        </section>
+        <aside class="chat">
+          <h2>Ask about articles</h2>
+          <p>Ask what matters, what to read first, or how two items connect.</p>
+          <textarea id="question" placeholder="Which article is most worth reading in full?"></textarea>
+          <button id="askButton">Ask</button>
+          <div class="answer" id="answer"></div>
+        </aside>
+      </div>
+    </main>
+    <script>
+      const digestId = document.querySelector('#articles').dataset.digestId;
+      function setRating(card, value) {{
+        card.querySelector('[data-rating]').value = value;
+        card.querySelectorAll('[data-score]').forEach((button) => {{
+          button.classList.toggle('is-selected', button.dataset.score === value);
+        }});
+      }}
+      document.querySelectorAll('[data-rate]').forEach((button) => {{
+        button.addEventListener('click', () => {{
+          const card = button.closest('[data-item]');
+          setRating(card, button.dataset.rate);
+        }});
+      }});
+      document.querySelectorAll('[data-score]').forEach((button) => {{
+        button.addEventListener('click', () => {{
+          setRating(button.closest('[data-item]'), button.dataset.score);
+        }});
+      }});
+      document.querySelectorAll('[data-item]').forEach((card) => {{
+        const selected = card.querySelector('[data-rating]').value;
+        if (selected) setRating(card, selected);
+      }});
+      document.querySelector('#submitFeedback').addEventListener('click', async () => {{
+        const ratings = Array.from(document.querySelectorAll('[data-item]')).map((card) => ({{
+          item_number: Number(card.dataset.item),
+          rating: card.querySelector('[data-rating]').value,
+        }})).filter((item) => item.rating);
+        const response = await fetch('/api/feedback/bulk', {{
+          method:'POST',
+          headers:{{'Content-Type':'application/json'}},
+          body:JSON.stringify({{digest_id:digestId, ratings, note:document.querySelector('#note').value}})
+        }});
+        const data = await response.json();
+        document.querySelector('#feedbackResult').textContent = response.ok ? 'Saved.' : (data.error || 'Could not save.');
+      }});
+      document.querySelector('#askButton').addEventListener('click', async () => {{
+        const answer = document.querySelector('#answer');
+        answer.textContent = 'Thinking...';
+        const response = await fetch('/api/articles/chat', {{
+          method:'POST',
+          headers:{{'Content-Type':'application/json'}},
+          body:JSON.stringify({{digest_id:digestId, question:document.querySelector('#question').value}})
+        }});
+        const data = await response.json();
+        answer.textContent = response.ok ? data.answer : (data.error || 'Could not answer.');
+      }});
+    </script>
+  </body>
+</html>"""
+
+
+def escape_html(value: Any) -> str:
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#039;")
+    )
+
+
+def escape_attr(value: Any) -> str:
+    return escape_html(value)
 
 
 def build_oauth_flow(port: int, state: str | None = None) -> Flow:
@@ -114,6 +376,147 @@ def classify_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]
     return classified
 
 
+def to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def profile_output_dir(profile_id: str) -> Path:
+    return PROJECT_ROOT / "outputs" / "users" / profile_id
+
+
+def compact_ranked_item(item: dict[str, Any]) -> dict[str, Any]:
+    scores = item.get("scores") or {}
+    return {
+        "rank": item.get("rank"),
+        "item_number": item.get("item_number"),
+        "title": item.get("title") or "Untitled",
+        "source": item_source(item),
+        "newsletter_name": item.get("newsletter_name"),
+        "summary": item.get("summary") or "",
+        "why_finn_cares": item.get("why_finn_cares") or "",
+        "why_world_cares": item.get("why_world_cares") or "",
+        "ranking_note": item.get("ranking_note") or "",
+        "include_in_digest": bool(item.get("include_in_digest")),
+        "url": item.get("url") or item.get("link") or "",
+        "topic_tags": item.get("topic_tags") or [],
+        "read_time": item.get("read_time"),
+        "scores": {
+            "final_score": to_float(scores.get("final_score")),
+            "base_score": to_float(scores.get("base_score")),
+            "learned_multiplier": to_float(scores.get("learned_multiplier"), 1.0),
+            "finn_relevance": to_float(scores.get("finn_relevance")),
+            "global_importance": to_float(scores.get("global_importance")),
+            "novelty": to_float(scores.get("novelty")),
+            "actionability": to_float(scores.get("actionability")),
+            "source_quality": to_float(scores.get("source_quality")),
+        },
+    }
+
+
+def ranking_summary(items: list[dict[str, Any]], manifest: dict[str, Any]) -> dict[str, Any]:
+    digest_items = [item for item in items if item.get("include_in_digest")]
+    scored_items = [to_float((item.get("scores") or {}).get("final_score")) for item in items]
+    source_counts: dict[str, int] = {}
+    for item in items:
+        source = item_source(item)
+        source_counts[source] = source_counts.get(source, 0) + 1
+
+    top_source = ""
+    if source_counts:
+        top_source = sorted(source_counts.items(), key=lambda row: (-row[1], row[0]))[0][0]
+
+    return {
+        "digest_id": manifest.get("digest_id", ""),
+        "created_at": manifest.get("created_at", ""),
+        "total_ranked": len(items),
+        "sent_in_digest": len(digest_items),
+        "average_score": round(sum(scored_items) / len(scored_items), 2) if scored_items else 0,
+        "top_source": top_source,
+    }
+
+
+def profile_rankings(profile_id: str) -> dict[str, Any]:
+    load_profile(profile_id)
+    output_dir = profile_output_dir(profile_id)
+    scored_path = output_dir / "latest_scored_items.json"
+    manifest_path = output_dir / "latest_digest_manifest.json"
+    digest_path = output_dir / "finn_signal_latest.html"
+
+    if not scored_path.exists():
+        return {
+            "status": "empty",
+            "profile_id": profile_id,
+            "message": "No ranked digest exists yet for this profile.",
+            "items": [],
+            "summary": {},
+            "learned_preferences": read_yaml(profile_paths(profile_id).learned_preferences, {}),
+        }
+
+    ranked = read_json(scored_path, {})
+    manifest = read_json(manifest_path, {}) if manifest_path.exists() else {}
+    items = [compact_ranked_item(item) for item in ranked.get("scored_items", [])]
+    items.sort(
+        key=lambda item: (
+            int(item.get("rank") or 9999),
+            -to_float((item.get("scores") or {}).get("final_score")),
+        )
+    )
+
+    return {
+        "status": "ready",
+        "profile_id": profile_id,
+        "summary": ranking_summary(ranked.get("scored_items", []), manifest),
+        "items": items,
+        "digest_sections": ranked.get("digest_sections") or {},
+        "learned_preferences": read_yaml(profile_paths(profile_id).learned_preferences, {}),
+        "review_url": f"/feedback?digest_id={manifest.get('digest_id')}" if manifest.get("digest_id") else "",
+        "digest_path": str(digest_path) if digest_path.exists() else "",
+    }
+
+
+def site_guide_context() -> str:
+    return f"""
+Finn-Signal is a web console with these tabs:
+- Onboarding: create a profile, connect Gmail, scan recent mail, approve newsletter candidates.
+- Rankings: inspect the latest ranked digest, score breakdowns, model reasoning, and article links.
+- Sources: manually add newsletter senders and turn approved senders on or off.
+- Discover: type a natural-language topic request and let the newsletter discovery agent recommend sources.
+- Schedule: change delivery time/frequency and install the local background sender.
+- Runs: send one test digest immediately.
+
+Visual map:
+- The profile selector is in the top-right header.
+- The tab bar sits under the header.
+- The status strip shows Gmail, Sources, Delivery, and Scheduler.
+- The bottom-right Help drawer is available across tabs.
+
+Highlightable targets, by target key:
+{json.dumps(SITE_GUIDE_TARGETS, indent=2)}
+
+When the user asks where to do something, answer in plain language and include target keys for the controls to highlight.
+Return only JSON with this shape:
+{{"answer":"short helpful answer","targets":["one_or_more_target_keys"]}}
+""".strip()
+
+
+def parse_site_guide_output(text: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return {"answer": text.strip(), "targets": []}
+
+    answer = str(parsed.get("answer") or "").strip()
+    targets = [
+        str(target)
+        for target in parsed.get("targets", [])
+        if str(target) in SITE_GUIDE_TARGETS
+    ]
+    return {"answer": answer or "I can help you find the right control.", "targets": targets}
+
+
 class ConsoleHandler(BaseHTTPRequestHandler):
     server_version = "FinnSignalConsole/1.0"
 
@@ -163,6 +566,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                         "profiles": list_profiles(),
                         "scheduler": {
                             "installed": launch_agent_path().exists(),
+                            "hosted": bool_env("FINN_SIGNAL_ENABLE_HOSTED_SCHEDULER", False),
                             "path": str(launch_agent_path()),
                         },
                     }
@@ -173,6 +577,12 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 self.send_json({"profiles": list_profiles()})
                 return
 
+            parts = [part for part in parsed.path.split("/") if part]
+            if len(parts) == 4 and parts[:2] == ["api", "profiles"] and parts[3] == "rankings":
+                profile_id = clean_profile_id(parts[2])
+                self.send_json(profile_rankings(profile_id))
+                return
+
             if parsed.path.startswith("/api/profiles/") and parsed.path.endswith("/sources"):
                 profile_id = clean_profile_id(parsed.path.split("/")[3])
                 self.send_json({"sources": read_sources(profile_id)})
@@ -180,6 +590,10 @@ class ConsoleHandler(BaseHTTPRequestHandler):
 
             if parsed.path == "/oauth2callback":
                 self.handle_oauth_callback(parsed)
+                return
+
+            if parsed.path == "/feedback":
+                self.handle_feedback_page(parsed)
                 return
 
             self.serve_static(parsed.path)
@@ -203,6 +617,18 @@ class ConsoleHandler(BaseHTTPRequestHandler):
 
             if parsed.path == "/api/scheduler/install":
                 self.send_json({"scheduler": install_launch_agent(PROJECT_ROOT)})
+                return
+
+            if parsed.path == "/api/feedback/bulk":
+                self.handle_bulk_feedback(body)
+                return
+
+            if parsed.path == "/api/articles/chat":
+                self.handle_article_chat(body)
+                return
+
+            if parsed.path == "/api/site-guide/chat":
+                self.handle_site_guide_chat(body)
                 return
 
             if len(parts) >= 3 and parts[0] == "api" and parts[1] == "profiles":
@@ -324,6 +750,124 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             return
 
         self.send_error_json(404, "Unknown profile action.")
+
+    def handle_feedback_page(self, parsed) -> None:
+        params = parse_qs(parsed.query)
+        digest_id = (params.get("digest_id") or [""])[0]
+        selected_item = (params.get("item") or [""])[0]
+        selected_rating = (params.get("rating") or [""])[0]
+
+        try:
+            manifest = load_manifest(digest_id)
+        except Exception as error:
+            self.send_html(
+                f"<h1>Digest not found</h1><p>{str(error)}</p>",
+                status=404,
+            )
+            return
+
+        body = render_feedback_app(manifest, selected_item, selected_rating)
+        self.send_html(body)
+
+    def handle_bulk_feedback(self, body: dict[str, Any]) -> None:
+        digest_id = str(body.get("digest_id", "")).strip()
+        manifest = load_manifest(digest_id)
+        ratings = []
+
+        for rating in body.get("ratings", []):
+            try:
+                item_number = int(rating.get("item_number"))
+                rating_value = int(rating.get("rating"))
+            except (TypeError, ValueError):
+                continue
+            if 1 <= rating_value <= 5:
+                ratings.append({"item_number": item_number, "rating": rating_value})
+
+        note = str(body.get("note", "")).strip()
+        raw_feedback = ", ".join(
+            f"{rating['item_number']}:{rating['rating']}"
+            for rating in ratings
+        )
+        if note:
+            raw_feedback = f"{raw_feedback}\n{note}".strip()
+
+        learned_path, log_path = feedback_paths_for_digest(digest_id)
+        result = apply_parsed_feedback(
+            raw_feedback=raw_feedback,
+            parsed_feedback={
+                "item_ratings": ratings,
+                "topic_adjustments": [],
+                "source_adjustments": [],
+                "rules": [],
+                "style_notes": [note] if note else [],
+            },
+            manifest=manifest,
+            learned_preferences_path=learned_path,
+            feedback_log_path=log_path,
+        )
+        self.send_json({"ok": True, "result": result})
+
+    def handle_article_chat(self, body: dict[str, Any]) -> None:
+        digest_id = str(body.get("digest_id", "")).strip()
+        question = str(body.get("question", "")).strip()
+        if not question:
+            self.send_error_json(400, "Ask a question first.")
+            return
+
+        manifest = load_manifest(digest_id)
+        response = openai_client.responses.create(
+            model=get_cheap_model(),
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Finn-Signal's article assistant. Answer only from the provided digest articles. "
+                        "Be concise, cite article numbers and titles, and say when the digest does not contain enough information."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Digest articles:\n{manifest_items_context(manifest)}\n\nQuestion:\n{question}",
+                },
+            ],
+        )
+        self.send_json({"answer": response.output_text})
+
+    def handle_site_guide_chat(self, body: dict[str, Any]) -> None:
+        question = str(body.get("question", "")).strip()
+        if not question:
+            self.send_error_json(400, "Ask a question first.")
+            return
+
+        page_state = {
+            "active_tab": body.get("active_tab"),
+            "profile": body.get("profile"),
+            "visible_counts": body.get("visible_counts") or {},
+        }
+        response = openai_client.responses.create(
+            model=get_cheap_model(),
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Finn-Signal's site guide for non-technical users. "
+                        "Use the UI map to tell the user exactly where to click next. "
+                        "Do not claim you clicked anything yourself."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"UI map and instructions:\n{site_guide_context()}\n\n"
+                        f"Current page state:\n{json.dumps(page_state, indent=2)}\n\n"
+                        f"User question:\n{question}"
+                    ),
+                },
+            ],
+        )
+        result = parse_site_guide_output(response.output_text)
+        result["highlights"] = [SITE_GUIDE_TARGETS[target] for target in result["targets"]]
+        self.send_json(result)
 
     def handle_oauth_callback(self, parsed) -> None:
         params = parse_qs(parsed.query)

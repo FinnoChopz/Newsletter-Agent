@@ -3,6 +3,8 @@ const state = {
   activeProfileId: "",
   candidates: [],
   recommendations: [],
+  rankings: null,
+  rankingFilter: "all",
   scheduler: { installed: false, path: "" },
 };
 
@@ -79,15 +81,20 @@ function renderProfiles() {
 function renderStatus() {
   const profile = activeProfile();
   const schedule = profile?.schedule || {};
+  const schedulerLabel = state.scheduler.hosted ? "Hosted" : state.scheduler.installed ? "Installed" : "Not installed";
   $("#statusStrip").innerHTML = `
     <div class="metric"><span>Gmail</span><strong>${profile?.gmail_connected ? "Connected" : "Not connected"}</strong></div>
     <div class="metric"><span>Sources</span><strong>${profile?.source_count || 0}</strong></div>
     <div class="metric"><span>Delivery</span><strong>${schedule.enabled === false ? "Paused" : schedule.time || "11:00"}</strong></div>
-    <div class="metric"><span>Scheduler</span><strong>${state.scheduler.installed ? "Installed" : "Not installed"}</strong></div>
+    <div class="metric"><span>Runner</span><strong>${schedulerLabel}</strong></div>
   `;
 
-  $("#schedulerPill").textContent = state.scheduler.installed ? "Installed" : "Not installed";
+  $("#schedulerPill").textContent = schedulerLabel;
   $("#sourceCount").textContent = String(profile?.source_count || 0);
+  $("#installScheduler").hidden = Boolean(state.scheduler.hosted);
+  if (state.scheduler.hosted) {
+    $("#scheduleResult").textContent = "";
+  }
 
   if (profile) {
     const form = $("#scheduleForm");
@@ -203,6 +210,187 @@ function renderRecommendations(recommendations) {
     .join("");
 }
 
+function scoreValue(scores, key) {
+  const value = Number(scores?.[key] || 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function scorePill(label, value) {
+  const normalized = Math.max(0, Math.min(10, Number(value) || 0));
+  return `
+    <div class="score-pill">
+      <div>
+        <span>${escapeHtml(label)}</span>
+        <strong>${normalized.toFixed(1)}</strong>
+      </div>
+      <i style="--score-width:${normalized * 10}%"></i>
+    </div>
+  `;
+}
+
+function renderRankingSummary(rankings) {
+  const summary = rankings?.summary || {};
+  const reviewLink = $("#reviewLatestDigest");
+
+  if (rankings?.review_url) {
+    reviewLink.href = rankings.review_url;
+    reviewLink.hidden = false;
+  } else {
+    reviewLink.hidden = true;
+  }
+
+  if (rankings?.status !== "ready") {
+    $("#rankingSummary").innerHTML = `
+      <article class="metric wide"><span>Status</span><strong>No rankings yet</strong></article>
+      <article class="metric wide"><span>Next move</span><strong>Send a digest now</strong></article>
+      <article class="metric wide"><span>Profile</span><strong>${activeProfile() ? "Ready" : "Missing"}</strong></article>
+    `;
+    $("#rankingHint").textContent = rankings?.message || "Send one digest to create the first ranked list.";
+    $("#rankingCount").textContent = "0";
+    return;
+  }
+
+  $("#rankingSummary").innerHTML = `
+    <article class="metric"><span>Ranked</span><strong>${summary.total_ranked || 0}</strong></article>
+    <article class="metric"><span>Sent</span><strong>${summary.sent_in_digest || 0}</strong></article>
+    <article class="metric"><span>Avg score</span><strong>${Number(summary.average_score || 0).toFixed(1)}</strong></article>
+    <article class="metric"><span>Top source</span><strong>${escapeHtml(summary.top_source || "None")}</strong></article>
+  `;
+  $("#rankingHint").textContent = summary.created_at
+    ? `Latest digest: ${summary.digest_id || "profile digest"}`
+    : "Latest digest rankings are loaded.";
+}
+
+function filteredRankingItems() {
+  const items = state.rankings?.items || [];
+  if (state.rankingFilter === "sent") {
+    return items.filter((item) => item.include_in_digest);
+  }
+  if (state.rankingFilter === "held") {
+    return items.filter((item) => !item.include_in_digest);
+  }
+  return items;
+}
+
+function renderLearningProfile(rankings) {
+  const learned = rankings?.learned_preferences || {};
+  const topics = Object.entries(learned.topic_weights || {})
+    .sort((a, b) => Math.abs(Number(b[1] || 0)) - Math.abs(Number(a[1] || 0)))
+    .slice(0, 8);
+  const sources = Object.entries(learned.source_weights || {})
+    .sort((a, b) => Math.abs(Number(b[1] || 0)) - Math.abs(Number(a[1] || 0)))
+    .slice(0, 8);
+
+  const group = (title, rows) => `
+    <div class="learning-group">
+      <h3>${title}</h3>
+      ${
+        rows.length
+          ? rows.map(([name, value]) => `
+              <div class="learning-row">
+                <span>${escapeHtml(name)}</span>
+                <strong>${Number(value || 0).toFixed(2)}</strong>
+              </div>
+            `).join("")
+          : '<p class="quiet">No feedback learned yet.</p>'
+      }
+    </div>
+  `;
+
+  $("#learningList").innerHTML = `
+    ${group("Topic weights", topics)}
+    ${group("Source weights", sources)}
+    <div class="learning-note">Use the feedback page from a digest email to move these weights over time.</div>
+  `;
+}
+
+function renderRankings(rankings) {
+  state.rankings = rankings;
+  renderRankingSummary(rankings);
+  renderLearningProfile(rankings);
+
+  if (rankings?.status !== "ready") {
+    $("#rankingList").innerHTML = `
+      <div class="empty-state">
+        <h3>No ranked digest yet.</h3>
+        <p>Use “Send digest now” on this tab or in Runs. After the first digest, this page will show every article, score, and reason.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const items = filteredRankingItems();
+  $("#rankingCount").textContent = String(items.length);
+  if (!items.length) {
+    $("#rankingList").innerHTML = '<p class="quiet">No articles match this filter.</p>';
+    return;
+  }
+
+  $("#rankingList").innerHTML = items
+    .map((item) => {
+      const scores = item.scores || {};
+      const finalScore = scoreValue(scores, "final_score");
+      const multiplier = scoreValue(scores, "learned_multiplier") || 1;
+      const status = item.include_in_digest ? "Sent in digest" : "Held back";
+      const statusClass = item.include_in_digest ? "good" : "warn";
+      const rankLabel = item.item_number ? `#${item.item_number} in email` : `Rank ${item.rank || "?"}`;
+      const link = item.url
+        ? `<a href="${escapeAttr(item.url)}" target="_blank" rel="noreferrer">Read full article</a>`
+        : '<span>No source link captured</span>';
+
+      return `
+        <article class="ranking-card ${statusClass}">
+          <div class="rank-badge">
+            <span>Rank</span>
+            <strong>${escapeHtml(item.rank || "?")}</strong>
+          </div>
+          <div class="ranking-main">
+            <div class="ranking-title-row">
+              <div>
+                <div class="meta">
+                  <span>${escapeHtml(status)}</span>
+                  <span>${escapeHtml(rankLabel)}</span>
+                  <span>${escapeHtml(item.source || "Unknown source")}</span>
+                </div>
+                <h3>${escapeHtml(item.title)}</h3>
+              </div>
+              <div class="final-score">
+                <span>Score</span>
+                <strong>${finalScore.toFixed(1)}</strong>
+              </div>
+            </div>
+            <p>${escapeHtml(item.summary || "")}</p>
+            <div class="score-grid">
+              ${scorePill("Finn", scoreValue(scores, "finn_relevance"))}
+              ${scorePill("World", scoreValue(scores, "global_importance"))}
+              ${scorePill("Novelty", scoreValue(scores, "novelty"))}
+              ${scorePill("Action", scoreValue(scores, "actionability"))}
+            </div>
+            <div class="reason-grid">
+              <div>
+                <span>Why for you</span>
+                <p>${escapeHtml(item.why_finn_cares || "No explanation captured.")}</p>
+              </div>
+              <div>
+                <span>Why broadly</span>
+                <p>${escapeHtml(item.why_world_cares || "No explanation captured.")}</p>
+              </div>
+            </div>
+            <div class="ranking-foot">
+              <div class="meta">
+                ${(item.topic_tags || []).slice(0, 5).map((topic) => `<span>${escapeHtml(topic)}</span>`).join("")}
+                <span>${multiplier.toFixed(2)}x learned</span>
+              </div>
+              <div class="meta">${link}</div>
+            </div>
+            ${item.ranking_note ? `<p class="ranking-note">${escapeHtml(item.ranking_note)}</p>` : ""}
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -239,17 +427,115 @@ async function loadSources() {
   renderSources(data.sources || []);
 }
 
+async function loadRankings() {
+  const profile = activeProfile();
+  if (!profile) {
+    renderRankings({
+      status: "empty",
+      message: "Create or select a profile first.",
+      items: [],
+      learned_preferences: {},
+    });
+    return;
+  }
+
+  const rankings = await api(`/api/profiles/${encodeURIComponent(profile.id)}/rankings`);
+  renderRankings(rankings);
+}
+
+async function sendDigestNow(outputSelector = "#runOutput") {
+  const profile = requireProfile();
+  const data = await api(`/api/profiles/${encodeURIComponent(profile.id)}/send-test`, { method: "POST", body: "{}" });
+  if (outputSelector) {
+    showResult(outputSelector, data.result);
+  }
+  await loadState();
+  return data;
+}
+
 function showResult(selector, value) {
   $(selector).textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
+function activeTabId() {
+  return $(".view.is-active")?.id || "onboarding";
+}
+
+function pageGuideState() {
+  return {
+    active_tab: activeTabId(),
+    profile: activeProfile(),
+    visible_counts: {
+      candidates: state.candidates.length,
+      recommendations: state.recommendations.length,
+      rankings: state.rankings?.items?.length || 0,
+      sources: Number($("#sourceCount")?.textContent || 0),
+    },
+  };
+}
+
+function openGuide() {
+  $("#guidePanel").hidden = false;
+  $("#guideToggle").setAttribute("aria-expanded", "true");
+  $("#guideQuestion").focus();
+}
+
+function closeGuide() {
+  $("#guidePanel").hidden = true;
+  $("#guideToggle").setAttribute("aria-expanded", "false");
+}
+
+function clearGuideHighlights() {
+  $$(".guide-highlight").forEach((element) => element.classList.remove("guide-highlight"));
+}
+
+function applyGuideHighlights(selectors) {
+  clearGuideHighlights();
+  const elements = (selectors || [])
+    .map((selector) => {
+      try {
+        return document.querySelector(selector);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  elements.forEach((element) => element.classList.add("guide-highlight"));
+  if (elements[0]) {
+    elements[0].scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  window.setTimeout(clearGuideHighlights, 9000);
+}
+
+async function askGuide(question) {
+  const answer = $("#guideAnswer");
+  answer.textContent = "Thinking...";
+  const data = await api("/api/site-guide/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      question,
+      ...pageGuideState(),
+    }),
+  });
+  answer.textContent = data.answer || "I could not find that.";
+  applyGuideHighlights(data.highlights || []);
+}
+
 function wireTabs() {
   $$(".tab").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       $$(".tab").forEach((tab) => tab.classList.remove("is-active"));
       $$(".view").forEach((view) => view.classList.remove("is-active"));
       button.classList.add("is-active");
       $(`#${button.dataset.tab}`).classList.add("is-active");
+      if (button.dataset.tab === "rankings") {
+        try {
+          await loadRankings();
+        } catch (error) {
+          renderRankings({ status: "empty", message: error.message, items: [], learned_preferences: {} });
+        }
+      }
     });
   });
 }
@@ -263,6 +549,9 @@ function wireForms() {
     renderRecommendations([]);
     renderStatus();
     await loadSources();
+    if (activeTabId() === "rankings") {
+      await loadRankings();
+    }
   });
 
   $("#profileForm").addEventListener("submit", async (event) => {
@@ -461,16 +750,82 @@ function wireForms() {
     }
   });
 
+  $("#refreshRankings").addEventListener("click", async (event) => {
+    const done = setBusy(event.currentTarget, "Refreshing...");
+    try {
+      await loadRankings();
+    } catch (error) {
+      renderRankings({ status: "empty", message: error.message, items: [], learned_preferences: {} });
+    } finally {
+      done();
+    }
+  });
+
+  $("#rankingSendTest").addEventListener("click", async (event) => {
+    const done = setBusy(event.currentTarget, "Sending...");
+    try {
+      $("#rankingHint").textContent = "Sending a digest now. This can take a few minutes.";
+      await sendDigestNow(null);
+      await loadRankings();
+    } catch (error) {
+      $("#rankingHint").textContent = error.message;
+    } finally {
+      done();
+    }
+  });
+
+  $$("[data-ranking-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.rankingFilter = button.dataset.rankingFilter;
+      $$("[data-ranking-filter]").forEach((item) => item.classList.remove("is-active"));
+      button.classList.add("is-active");
+      renderRankings(state.rankings || { status: "empty", items: [], learned_preferences: {} });
+    });
+  });
+
   $("#sendTest").addEventListener("click", async (event) => {
     const done = setBusy(event.currentTarget, "Sending...");
     try {
-      const profile = requireProfile();
-      const data = await api(`/api/profiles/${encodeURIComponent(profile.id)}/send-test`, { method: "POST", body: "{}" });
-      showResult("#runOutput", data.result);
+      await sendDigestNow("#runOutput");
     } catch (error) {
       showResult("#runOutput", error.message);
     } finally {
       done();
+    }
+  });
+
+  $("#guideToggle").addEventListener("click", () => {
+    if ($("#guidePanel").hidden) {
+      openGuide();
+    } else {
+      closeGuide();
+    }
+  });
+
+  $("#guideClose").addEventListener("click", closeGuide);
+
+  $$("[data-guide-question]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      openGuide();
+      $("#guideQuestion").value = button.dataset.guideQuestion;
+      try {
+        await askGuide(button.dataset.guideQuestion);
+      } catch (error) {
+        $("#guideAnswer").textContent = error.message;
+      }
+    });
+  });
+
+  $("#guideAsk").addEventListener("click", async () => {
+    const question = $("#guideQuestion").value.trim();
+    if (!question) {
+      $("#guideAnswer").textContent = "Ask what you want to do in the app.";
+      return;
+    }
+    try {
+      await askGuide(question);
+    } catch (error) {
+      $("#guideAnswer").textContent = error.message;
     }
   });
 }

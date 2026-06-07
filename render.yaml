@@ -35,5 +35,7 @@ services:
         sync: false
       - key: FINN_SIGNAL_PUBLIC_URL
         sync: false
+      - key: FINN_SIGNAL_FEEDBACK_BASE_URL
+        sync: false
       - key: FINN_SIGNAL_GOOGLE_CLIENT_CONFIG_JSON
         sync: false

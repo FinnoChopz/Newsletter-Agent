@@ -53,7 +53,13 @@ def feedback_link(
         "rating": str(rating),
     }
 
-    return f"{feedback_base_url.rstrip('/')}/api/feedback?{urlencode(params)}"
+    return f"{feedback_base_url.rstrip('/')}/feedback?{urlencode(params)}"
+
+
+def review_digest_link(feedback_base_url: str | None, digest_id: str) -> str:
+    if not feedback_base_url:
+        return ""
+    return f"{feedback_base_url.rstrip('/')}/feedback?{urlencode({'digest_id': digest_id})}"
 
 
 def action_button(
@@ -205,6 +211,7 @@ def render_html_digest(
     top_signals = sections.get("top_signals") or []
     strange = sections.get("strange_attractor")
     skipped = sections.get("skipped_but_noted") or []
+    review_link = review_digest_link(feedback_base_url, digest_id)
 
     top_html = "\n".join(
         render_item_card(
@@ -244,6 +251,12 @@ def render_html_digest(
     if not skipped:
         skipped_html = '<tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#64748b;padding:8px 0 18px 0;">Nothing else was worth noting.</td></tr>'
 
+    review_button = (
+        action_button("Rate + chat about this digest", review_link, "#111827")
+        if review_link
+        else ""
+    )
+
     return f"""<!doctype html>
 <html>
   <body style="margin:0;padding:0;background:#f3f5f8;">
@@ -257,6 +270,7 @@ def render_html_digest(
                   <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:800;letter-spacing:0;text-transform:uppercase;color:#93c5fd;">FINN-SIGNAL</div>
                   <h1 style="font-family:Arial,Helvetica,sans-serif;font-size:30px;line-height:1.15;margin:8px 0;color:#ffffff;">Daily Signal - {escape(digest_id)}</h1>
                   <p style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;margin:0;color:#d1d5db;">Ranked by personal relevance, global importance, novelty, actionability, source quality, and learned preferences.</p>
+                  <div style="margin-top:14px;">{review_button}</div>
                 </td>
               </tr>
 
@@ -286,8 +300,9 @@ def render_html_digest(
               <tr>
                 <td style="padding:24px 18px;margin-top:20px;background:#e8eef7;border:1px solid #cbd5e1;border-radius:8px;">
                   <h2 style="font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:1.2;margin:0 0 8px 0;color:#111827;">Feedback</h2>
-                  <p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;margin:0 0 8px 0;color:#374151;">Use the buttons on any item, or reply with ratings like <strong>1:5, 2:2, 3:4</strong>.</p>
+                  <p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;margin:0 0 8px 0;color:#374151;">Click <strong>Rate + chat about this digest</strong> to rank every article with Like / Not Like / 1-5 controls and ask the article assistant questions.</p>
                   <p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;margin:0;color:#374151;">Natural language works too: <strong>More AI infra, less routine market noise.</strong></p>
+                  <div style="margin-top:10px;">{review_button}</div>
                 </td>
               </tr>
             </table>

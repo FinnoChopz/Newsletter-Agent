@@ -22,6 +22,7 @@
 
       <nav class="tabs" aria-label="Console sections">
         <button class="tab is-active" data-tab="onboarding">Onboarding</button>
+        <button class="tab" data-tab="rankings">Rankings</button>
         <button class="tab" data-tab="sources">Sources</button>
         <button class="tab" data-tab="discover">Discover</button>
         <button class="tab" data-tab="schedule">Schedule</button>
@@ -33,21 +34,21 @@
       <section class="view is-active" id="onboarding">
         <div class="setup-band">
           <div>
-            <p class="eyebrow">How it actually runs</p>
-            <h2>Finn-Signal needs one always-awake runner.</h2>
+            <p class="eyebrow">Render-hosted</p>
+            <h2>Finn-Signal runs from the web, not from their laptop.</h2>
           </div>
           <div class="setup-grid">
             <article>
-              <strong>Best for family testing</strong>
-              <span>Run it on your Mac. The Mac must be awake at delivery time, though Power Nap / a desktop Mac is usually fine.</span>
+              <strong>Where they go</strong>
+              <span>Send them the Render URL. They create a profile, connect Gmail, approve newsletters, and pick a schedule there.</span>
             </article>
             <article>
-              <strong>Best end-state</strong>
-              <span>Host it on Render with a persistent disk. Then their computers can be off; Render does the daily work.</span>
+              <strong>Who sends daily</strong>
+              <span>Render keeps the app online and runs the daily digest job, so their computer can be closed or off.</span>
             </article>
             <article>
               <strong>What they do</strong>
-              <span>Open the page, create profile, connect Gmail, approve newsletters, choose delivery time.</span>
+              <span>They only use this page. No repo download or terminal setup is part of normal onboarding.</span>
             </article>
           </div>
         </div>
@@ -117,6 +118,49 @@
         </div>
       </section>
 
+      <section class="view" id="rankings">
+        <div class="rankings-hero">
+          <div>
+            <p class="eyebrow">Latest digest</p>
+            <h2>What got ranked, why it ranked, and what actually sent.</h2>
+          </div>
+          <div class="rank-actions">
+            <button id="refreshRankings" class="secondary">Refresh</button>
+            <button id="rankingSendTest">Send digest now</button>
+            <a id="reviewLatestDigest" class="button-link secondary" href="#" target="_blank" rel="noreferrer" hidden>Review feedback</a>
+          </div>
+        </div>
+
+        <div class="ranking-summary" id="rankingSummary"></div>
+
+        <div class="ranking-toolbar">
+          <div class="segmented" aria-label="Ranking filters">
+            <button class="segment is-active" data-ranking-filter="all">All ranked</button>
+            <button class="segment" data-ranking-filter="sent">Sent</button>
+            <button class="segment" data-ranking-filter="held">Held back</button>
+          </div>
+          <div class="ranking-hint" id="rankingHint">Select a profile, then send one digest to create rankings.</div>
+        </div>
+
+        <div class="ranking-layout">
+          <section class="panel ranking-panel">
+            <div class="panel-head">
+              <h2>Article rankings</h2>
+              <span class="step-pill" id="rankingCount">0</span>
+            </div>
+            <div class="list rankings-list" id="rankingList"></div>
+          </section>
+
+          <aside class="panel learning-panel">
+            <div class="panel-head">
+              <h2>Learning profile</h2>
+              <span class="step-pill">Feedback</span>
+            </div>
+            <div class="learning-list" id="learningList"></div>
+          </aside>
+        </div>
+      </section>
+
       <section class="view" id="sources">
         <div class="grid two">
           <form class="panel" id="manualSourceForm">
@@ -165,7 +209,7 @@
 
       <section class="view" id="schedule">
         <div class="notice">
-          Local mode cannot send while the Mac is fully asleep or off. If it wakes later that same day, Finn-Signal will catch up automatically and send once. For delivery while every laptop is off, host it on Render.
+          Render handles delivery for onboarded users. Change the selected profile's time or frequency here; their laptop does not need to be on.
         </div>
         <div class="grid two">
           <form class="panel" id="scheduleForm">
@@ -195,11 +239,11 @@
 
           <div class="panel">
             <div class="panel-head">
-              <h2>Computer scheduler</h2>
-              <span id="schedulerPill" class="step-pill">Not installed</span>
+              <h2>Render scheduler</h2>
+              <span id="schedulerPill" class="step-pill">Hosted</span>
             </div>
-            <p class="quiet">Install once on the computer that will send the digests.</p>
-            <button id="installScheduler">Install background sender</button>
+            <p class="quiet">The hosted runner checks profiles automatically and sends each enabled digest at the saved delivery time.</p>
+            <button id="installScheduler" class="secondary" hidden>Install scheduler</button>
             <div class="result" id="scheduleResult"></div>
           </div>
         </div>
@@ -217,6 +261,27 @@
         </div>
       </section>
     </main>
+
+    <aside class="guide-widget" id="guideWidget" aria-live="polite">
+      <button class="guide-toggle" id="guideToggle" aria-expanded="false" aria-controls="guidePanel">Ask site guide</button>
+      <section class="guide-panel" id="guidePanel" hidden>
+        <div class="guide-head">
+          <div>
+            <p class="eyebrow">Site guide</p>
+            <h2>Ask where to go next.</h2>
+          </div>
+          <button class="icon-button secondary" id="guideClose" aria-label="Close help">×</button>
+        </div>
+        <div class="guide-presets">
+          <button class="secondary" data-guide-question="How do I connect Gmail?">Connect Gmail</button>
+          <button class="secondary" data-guide-question="Where do I change delivery time?">Change time</button>
+          <button class="secondary" data-guide-question="How do I see why an article ranked highly?">Explain rankings</button>
+        </div>
+        <textarea id="guideQuestion" rows="3" placeholder="Where do I add a newsletter?"></textarea>
+        <button id="guideAsk">Ask guide</button>
+        <div class="guide-answer" id="guideAnswer"></div>
+      </section>
+    </aside>
 
     <script src="/app.js"></script>
   </body>

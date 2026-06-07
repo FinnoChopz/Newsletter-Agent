@@ -1,8 +1,11 @@
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 
-from web_console import build_oauth_flow
+from app.profiles import create_profile
+from web_console import build_oauth_flow, parse_site_guide_output, profile_rankings, render_feedback_app
 
 
 class WebConsoleTests(unittest.TestCase):
@@ -36,6 +39,63 @@ class WebConsoleTests(unittest.TestCase):
                 os.environ.pop("FINN_SIGNAL_GOOGLE_CLIENT_CONFIG_JSON", None)
             else:
                 os.environ["FINN_SIGNAL_GOOGLE_CLIENT_CONFIG_JSON"] = previous
+
+    def test_feedback_app_contains_rating_controls_and_chat(self):
+        html = render_feedback_app(
+            {
+                "digest_id": "demo-2026-06-07",
+                "items": [
+                    {
+                        "item_number": 1,
+                        "title": "Article One",
+                        "summary": "A useful article.",
+                        "source": "Demo",
+                        "url": "https://example.com/article",
+                    }
+                ],
+            },
+            selected_item="1",
+            selected_rating="5",
+        )
+
+        self.assertIn("Rate this digest", html)
+        self.assertIn("Like", html)
+        self.assertIn("Not like", html)
+        self.assertIn('data-score="5"', html)
+        self.assertIn("Ask about articles", html)
+        self.assertIn("https://example.com/article", html)
+        self.assertIn('value="5" selected', html)
+
+    def test_site_guide_output_filters_highlight_targets(self):
+        parsed = parse_site_guide_output(
+            '{"answer":"Click Rankings, then Refresh.","targets":["rankings_tab","bad_selector","rankings_refresh"]}'
+        )
+
+        self.assertEqual(parsed["answer"], "Click Rankings, then Refresh.")
+        self.assertEqual(parsed["targets"], ["rankings_tab", "rankings_refresh"])
+
+    def test_profile_rankings_empty_state_for_new_profile(self):
+        previous = os.environ.get("FINN_SIGNAL_USERS_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = tmpdir
+                profile = create_profile("Demo", f"demo-{os.getpid()}@example.com")
+                rankings = profile_rankings(profile["id"])
+        finally:
+            if previous is None:
+                os.environ.pop("FINN_SIGNAL_USERS_DIR", None)
+            else:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = previous
+
+        self.assertEqual(rankings["status"], "empty")
+        self.assertEqual(rankings["items"], [])
+
+    def test_console_shell_exposes_rankings_and_guide(self):
+        html = Path("web/index.html").read_text(encoding="utf-8")
+
+        self.assertIn('data-tab="rankings"', html)
+        self.assertIn('id="rankingList"', html)
+        self.assertIn('id="guideWidget"', html)
 
 
 if __name__ == "__main__":

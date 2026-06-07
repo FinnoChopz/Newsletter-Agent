@@ -36,6 +36,14 @@ The blueprint creates:
 - `/healthz` health check
 - a built-in scheduler loop
 
+If Render asks for a start command manually, use exactly:
+
+```bash
+python web_console.py
+```
+
+Do not use `uvicorn server:app --host 0.0.0.0 --port $PORT`; this project is not a FastAPI/Uvicorn app.
+
 ## 4. Set Render environment variables
 
 In the Render service, open `Environment` and set:
@@ -45,6 +53,7 @@ OPENAI_API_KEY=...
 OPENAI_MAIN_MODEL=gpt-5.5
 OPENAI_CHEAP_MODEL=gpt-5.4-mini
 FINN_SIGNAL_PUBLIC_URL=https://your-render-url.onrender.com
+FINN_SIGNAL_FEEDBACK_BASE_URL=https://your-render-url.onrender.com
 FINN_SIGNAL_GOOGLE_CLIENT_CONFIG_JSON=<value from .render.env>
 ```
 

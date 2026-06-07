@@ -18,6 +18,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background:
@@ -46,16 +50,29 @@ button {
   padding: 0 20px;
 }
 
+.button-link {
+  align-items: center;
+  border-radius: 7px;
+  display: inline-flex;
+  font-weight: 750;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0 20px;
+  text-decoration: none;
+}
+
 button:hover {
   background: var(--green-dark);
 }
 
-button.secondary {
+button.secondary,
+.button-link.secondary {
   background: #e7ece6;
   color: var(--ink);
 }
 
-button.secondary:hover {
+button.secondary:hover,
+.button-link.secondary:hover {
   background: #d9e2d8;
 }
 
@@ -195,6 +212,7 @@ h2 {
   display: block;
   font-size: 23px;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .view {
@@ -223,6 +241,306 @@ h2 {
   display: grid;
   gap: 18px;
   padding: 24px;
+}
+
+.rankings-hero {
+  align-items: end;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  padding: 26px;
+}
+
+.rankings-hero h2 {
+  font-size: 34px;
+  max-width: 760px;
+}
+
+.rank-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.ranking-summary {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ranking-summary .metric.wide {
+  grid-column: span 1;
+}
+
+.ranking-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.segmented {
+  background: #e7ece6;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+}
+
+.segment {
+  background: transparent;
+  color: var(--muted);
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.segment:hover,
+.segment.is-active {
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.ranking-hint {
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.ranking-layout {
+  align-items: start;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+
+.ranking-panel {
+  min-width: 0;
+}
+
+.rankings-list {
+  gap: 14px;
+}
+
+.ranking-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--blue);
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 74px minmax(0, 1fr);
+  padding: 18px;
+}
+
+.ranking-card.good {
+  border-left-color: var(--green);
+}
+
+.ranking-card.warn {
+  border-left-color: var(--gold);
+}
+
+.rank-badge {
+  align-content: center;
+  background: #f5f7f2;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  height: 74px;
+  justify-items: center;
+}
+
+.rank-badge span,
+.final-score span,
+.score-pill span,
+.reason-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.rank-badge strong {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.ranking-main {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.ranking-title-row {
+  align-items: start;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+}
+
+.ranking-main h3 {
+  font-size: 24px;
+  line-height: 1.18;
+  margin: 9px 0 0;
+}
+
+.ranking-main p {
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.final-score {
+  background: #10231c;
+  border-radius: 8px;
+  color: #ffffff;
+  flex: 0 0 auto;
+  min-width: 92px;
+  padding: 12px;
+  text-align: center;
+}
+
+.final-score span {
+  color: #afc4b7;
+}
+
+.final-score strong {
+  display: block;
+  font-size: 30px;
+  line-height: 1;
+  margin-top: 3px;
+}
+
+.score-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.score-pill {
+  background: #f5f7f2;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+}
+
+.score-pill div {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+}
+
+.score-pill strong {
+  font-size: 19px;
+}
+
+.score-pill i {
+  background: var(--green);
+  border-radius: 999px;
+  display: block;
+  height: 6px;
+  width: var(--score-width);
+}
+
+.reason-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.reason-grid div {
+  background: #fbfcf8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+}
+
+.ranking-foot {
+  align-items: start;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.ranking-foot a {
+  color: var(--blue);
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.ranking-note {
+  background: #fff8e5;
+  border: 1px solid #e9c86d;
+  border-radius: 8px;
+  color: #523a09 !important;
+  padding: 12px;
+}
+
+.empty-state {
+  background: #f5f7f2;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 22px;
+}
+
+.empty-state h3,
+.learning-group h3 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.learning-list {
+  display: grid;
+  gap: 18px;
+}
+
+.learning-group {
+  display: grid;
+  gap: 8px;
+}
+
+.learning-row {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 9px 0;
+}
+
+.learning-row span {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.learning-row strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.learning-note {
+  background: #eef3ed;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.42;
+  padding: 13px;
 }
 
 .setup-band {
@@ -461,6 +779,98 @@ h2 {
   overflow: auto;
 }
 
+.guide-widget {
+  bottom: 18px;
+  position: fixed;
+  right: 18px;
+  width: min(390px, calc(100vw - 24px));
+  z-index: 20;
+}
+
+.guide-toggle {
+  box-shadow: 0 14px 40px rgba(16, 35, 28, 0.22);
+  float: right;
+  min-width: 106px;
+}
+
+.guide-panel {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(16, 35, 28, 0.2);
+  clear: both;
+  display: grid;
+  gap: 14px;
+  margin-bottom: 10px;
+  padding: 18px;
+}
+
+.guide-head {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.guide-head h2 {
+  font-size: 21px;
+}
+
+.icon-button {
+  font-size: 24px;
+  min-height: 40px;
+  padding: 0;
+  width: 44px;
+}
+
+.guide-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.guide-presets button {
+  font-size: 14px;
+  min-height: 38px;
+  padding: 0 11px;
+}
+
+.guide-panel textarea {
+  min-height: 92px;
+}
+
+.guide-answer {
+  background: #f5f7f2;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.45;
+  min-height: 62px;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.guide-answer:empty {
+  display: none;
+}
+
+.guide-highlight {
+  outline: 4px solid rgba(200, 87, 61, 0.72) !important;
+  outline-offset: 5px;
+  position: relative;
+  scroll-margin: 110px;
+}
+
+.guide-highlight::after {
+  border: 2px solid rgba(200, 87, 61, 0.9);
+  border-radius: 999px;
+  content: "";
+  inset: -12px;
+  pointer-events: none;
+  position: absolute;
+}
+
 @media (max-width: 820px) {
   .shell {
     width: min(100vw - 18px, 720px);
@@ -470,6 +880,10 @@ h2 {
   .topbar,
   .grid.two,
   .status-strip,
+  .ranking-summary,
+  .ranking-layout,
+  .score-grid,
+  .reason-grid,
   .setup-band,
   .setup-grid,
   .rail {
@@ -503,8 +917,51 @@ h2 {
   }
 
   .item-row,
-  .panel-head {
+  .panel-head,
+  .rankings-hero,
+  .ranking-toolbar,
+  .ranking-title-row,
+  .ranking-foot {
     align-items: stretch;
     display: grid;
+  }
+
+  .rankings-hero h2 {
+    font-size: 28px;
+  }
+
+  .rank-actions {
+    justify-content: stretch;
+  }
+
+  .rank-actions > * {
+    width: 100%;
+  }
+
+  .ranking-hint {
+    text-align: left;
+  }
+
+  .segmented {
+    overflow-x: auto;
+  }
+
+  .ranking-card {
+    grid-template-columns: 1fr;
+  }
+
+  .rank-badge {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    height: auto;
+    justify-content: flex-start;
+    padding: 12px;
+  }
+
+  .guide-widget {
+    bottom: 10px;
+    right: 10px;
+    width: calc(100vw - 20px);
   }
 }
