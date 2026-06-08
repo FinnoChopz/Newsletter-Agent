@@ -65,7 +65,6 @@ SITE_GUIDE_TARGETS = {
     "approved_sources": "#sourceList",
     "discover_agent": "#runDiscovery",
     "schedule_form": "#scheduleForm",
-    "install_scheduler": "#installScheduler",
     "send_test": "#sendTest",
 }
 
@@ -622,6 +621,16 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/scheduler/install":
+                if bool_env("FINN_SIGNAL_ENABLE_HOSTED_SCHEDULER", False):
+                    self.send_json(
+                        {
+                            "scheduler": {
+                                "hosted": True,
+                                "message": "Hosted scheduler is enabled on Render. No local install is needed.",
+                            }
+                        }
+                    )
+                    return
                 self.send_json({"scheduler": install_launch_agent(PROJECT_ROOT)})
                 return
 

@@ -91,7 +91,6 @@ function renderStatus() {
 
   $("#schedulerPill").textContent = schedulerLabel;
   $("#sourceCount").textContent = String(profile?.source_count || 0);
-  $("#installScheduler").hidden = Boolean(state.scheduler.hosted);
   if (state.scheduler.hosted) {
     $("#scheduleResult").textContent = "";
   }
@@ -730,19 +729,6 @@ function wireForms() {
       state.profiles = state.profiles.map((item) => (item.id === data.profile.id ? data.profile : item));
       renderStatus();
       showResult("#scheduleResult", "Schedule saved.");
-    } catch (error) {
-      showResult("#scheduleResult", error.message);
-    } finally {
-      done();
-    }
-  });
-
-  $("#installScheduler").addEventListener("click", async (event) => {
-    const done = setBusy(event.currentTarget, "Installing...");
-    try {
-      const data = await api("/api/scheduler/install", { method: "POST", body: "{}" });
-      showResult("#scheduleResult", data.scheduler);
-      await loadState();
     } catch (error) {
       showResult("#scheduleResult", error.message);
     } finally {
