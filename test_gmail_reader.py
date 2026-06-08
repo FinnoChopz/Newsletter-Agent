@@ -1,11 +1,14 @@
 import base64
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 
 from google.auth.exceptions import TransportError
 
 from app.gmail_reader import (
+    build_newsletter_query,
     execute_gmail_request,
     extract_text_from_payload,
     html_to_text,
@@ -79,6 +82,34 @@ class GmailReaderTests(unittest.TestCase):
         text = extract_text_from_payload(payload)
 
         self.assertIn("https://example.com/story", text)
+
+    def test_build_newsletter_query_ignores_display_name_only_senders(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sources_path = Path(tmpdir) / "sources.yaml"
+            sources_path.write_text(
+                """
+sources:
+  - name: Good Source
+    enabled: true
+    senders:
+      - Good Source
+      - News Desk <News@Example.com>
+      - news@example.com
+  - name: Disabled Source
+    enabled: false
+    senders:
+      - disabled@example.com
+""",
+                encoding="utf-8",
+            )
+
+            query = build_newsletter_query(str(sources_path), days=3)
+
+        self.assertIn("newer_than:3d", query)
+        self.assertIn("from:news@example.com", query)
+        self.assertNotIn("Good Source", query)
+        self.assertNotIn("disabled@example.com", query)
+        self.assertEqual(query.count("from:news@example.com"), 1)
 
 
 if __name__ == "__main__":

@@ -32,6 +32,12 @@ def extract_email_address(sender: str) -> str:
         return match.group(1).strip()
 
     return sender.strip()
+
+
+def extract_sender_email(sender: str) -> str:
+    value = extract_email_address(sender)
+    match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", value, re.IGNORECASE)
+    return match.group(0).lower() if match else ""
 load_dotenv()
 
 SCOPES = [
@@ -468,15 +474,18 @@ def build_newsletter_query(
     data = yaml.safe_load(Path(sources_path).read_text(encoding="utf-8"))
 
     senders = []
+    seen_senders = set()
 
     for source in data.get("sources", []):
         if not source.get("enabled", True):
             continue
 
-        senders.extend(
-            extract_email_address(sender)
-            for sender in source.get("senders", [])
-        )
+        for sender in source.get("senders", []):
+            email = extract_sender_email(sender)
+            if not email or email in seen_senders:
+                continue
+            senders.append(email)
+            seen_senders.add(email)
 
     if not senders:
         raise ValueError("No enabled newsletter senders found.")
