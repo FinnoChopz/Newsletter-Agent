@@ -28,6 +28,7 @@ from app.profiles import (
     read_json,
     read_yaml,
     read_sources,
+    resolve_profile_id,
     set_source_enabled,
     update_schedule,
     upsert_source,
@@ -443,7 +444,8 @@ def ranking_summary(items: list[dict[str, Any]], manifest: dict[str, Any]) -> di
 
 
 def profile_rankings(profile_id: str) -> dict[str, Any]:
-    load_profile(profile_id)
+    profile = load_profile(profile_id)
+    profile_id = profile["id"]
     output_dir = profile_output_dir(profile_id)
     scored_path = output_dir / "latest_scored_items.json"
     manifest_path = output_dir / "latest_digest_manifest.json"
@@ -583,12 +585,12 @@ class ConsoleHandler(BaseHTTPRequestHandler):
 
             parts = [part for part in parsed.path.split("/") if part]
             if len(parts) == 4 and parts[:2] == ["api", "profiles"] and parts[3] == "rankings":
-                profile_id = clean_profile_id(parts[2])
+                profile_id = resolve_profile_id(clean_profile_id(parts[2]))
                 self.send_json(profile_rankings(profile_id))
                 return
 
             if parsed.path.startswith("/api/profiles/") and parsed.path.endswith("/sources"):
-                profile_id = clean_profile_id(parsed.path.split("/")[3])
+                profile_id = resolve_profile_id(clean_profile_id(parsed.path.split("/")[3]))
                 self.send_json({"sources": read_sources(profile_id)})
                 return
 
@@ -663,7 +665,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         action: list[str],
         body: dict[str, Any],
     ) -> None:
-        load_profile(profile_id)
+        profile = load_profile(profile_id)
+        profile_id = profile["id"]
 
         if action == ["oauth", "start"]:
             flow = build_oauth_flow(self.port)

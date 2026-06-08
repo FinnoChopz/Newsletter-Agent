@@ -5,6 +5,7 @@ from pathlib import Path
 from app.profiles import (
     create_profile,
     list_profiles,
+    load_profile,
     profile_paths,
     read_yaml,
     read_sources,
@@ -51,6 +52,37 @@ class ProfileTests(unittest.TestCase):
 
             self.assertEqual(len(sources), 1)
             self.assertEqual(sources[0]["name"], "New")
+
+    def test_create_profile_updates_existing_email_and_email_lookup_works(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = create_profile(
+                "Amelia",
+                "amelia@example.com",
+                interests="climate tech",
+                root=tmp,
+            )
+            upsert_source(
+                profile["id"],
+                {"name": "Climate Brief", "senders": "brief@example.com"},
+                root=tmp,
+            )
+
+            updated = create_profile(
+                "Amy",
+                "amelia@example.com",
+                interests="architecture, public health",
+                root=tmp,
+            )
+            paths = profile_paths(profile["id"], root=tmp)
+            preferences = read_yaml(paths.preferences, {})
+            loaded_by_email = load_profile("amelia@example.com", root=tmp)
+
+            self.assertEqual(updated["id"], profile["id"])
+            self.assertEqual(updated["display_name"], "Amy")
+            self.assertEqual(loaded_by_email["id"], profile["id"])
+            self.assertEqual(len(list_profiles(root=tmp)), 1)
+            self.assertEqual(preferences["strong_interests"], ["architecture", "public health"])
+            self.assertEqual(len(read_sources(profile["id"], root=tmp)), 1)
 
     def test_update_schedule_validates_time_and_frequency(self):
         with tempfile.TemporaryDirectory() as tmp:

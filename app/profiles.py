@@ -12,6 +12,7 @@ import yaml
 
 
 DEFAULT_USERS_ROOT = Path("data/users")
+RENDER_USERS_ROOT = Path("/var/data/users")
 BASE_PREFERENCES_PATH = Path("data/preferences.yaml")
 
 
@@ -32,7 +33,11 @@ def users_root(root: str | Path | None = None) -> Path:
     if root:
         return Path(root)
     configured_root = os.getenv("FINN_SIGNAL_USERS_DIR")
-    return Path(configured_root) if configured_root else DEFAULT_USERS_ROOT
+    if configured_root:
+        return Path(configured_root)
+    if RENDER_USERS_ROOT.parent.exists():
+        return RENDER_USERS_ROOT
+    return DEFAULT_USERS_ROOT
 
 
 def slugify_user_id(value: str) -> str:
@@ -53,6 +58,53 @@ def profile_paths(profile_id: str, root: str | Path | None = None) -> ProfilePat
         discovery=profile_root / "discovery_recommendations.json",
         state=profile_root / "state.json",
     )
+
+
+def resolve_profile_id(profile_id_or_email: str, root: str | Path | None = None) -> str:
+    value = profile_id_or_email.strip()
+    base = users_root(root)
+    candidates = [value]
+    if "@" in value:
+        candidates.append(slugify_user_id(value))
+
+    for candidate in candidates:
+        if (base / candidate / "profile.json").exists():
+            return candidate
+
+    if base.exists():
+        for path in sorted(base.iterdir()):
+            meta_path = path / "profile.json"
+            if not meta_path.exists():
+                continue
+            profile = read_json(meta_path, {})
+            if str(profile.get("email", "")).lower() == value.lower():
+                return path.name
+
+    return value
+
+
+def find_profile_id_by_email(email: str, root: str | Path | None = None) -> str | None:
+    value = email.strip().lower()
+    if not value:
+        return None
+
+    base = users_root(root)
+    slug = slugify_user_id(value)
+    if (base / slug / "profile.json").exists():
+        return slug
+
+    if not base.exists():
+        return None
+
+    for path in sorted(base.iterdir()):
+        meta_path = path / "profile.json"
+        if not meta_path.exists():
+            continue
+        profile = read_json(meta_path, {})
+        if str(profile.get("email", "")).lower() == value:
+            return path.name
+
+    return None
 
 
 def read_json(path: Path, default: Any) -> Any:
@@ -150,6 +202,20 @@ def create_profile(
     if "@" not in email:
         raise ValueError("Enter a valid email address.")
     interest_list = split_interest_text(interests)
+    existing_profile_id = find_profile_id_by_email(email, root=root)
+    if existing_profile_id:
+        paths = profile_paths(existing_profile_id, root)
+        profile = read_json(paths.meta, {})
+        if display_name.strip():
+            profile["display_name"] = display_name.strip()
+        profile["email"] = email
+        if interest_list:
+            profile["interests"] = interest_list
+            write_yaml(
+                paths.preferences,
+                profile_preferences(profile["display_name"], email, interest_list),
+            )
+        return save_profile(profile, root=root)
 
     base_id = slugify_user_id(email)
     profile_id = base_id
@@ -174,6 +240,7 @@ def create_profile(
 
 
 def load_profile(profile_id: str, root: str | Path | None = None) -> dict[str, Any]:
+    profile_id = resolve_profile_id(profile_id, root=root)
     paths = profile_paths(profile_id, root)
     if not paths.meta.exists():
         raise FileNotFoundError(f"No profile named {profile_id}.")
@@ -205,10 +272,12 @@ def profile_with_status(
 ) -> dict[str, Any]:
     paths = profile_paths(profile["id"], root)
     sources = read_sources(profile["id"], root=root)
+    state = read_json(paths.state, {})
     return {
         **profile,
         "gmail_connected": paths.token.exists(),
         "source_count": len([source for source in sources if source.get("enabled", True)]),
+        "state": state,
         "paths": {
             "root": str(paths.root),
             "sources": str(paths.sources),

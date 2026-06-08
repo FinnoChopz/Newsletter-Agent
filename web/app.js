@@ -12,6 +12,7 @@ window.finnSignalState = state;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+const ACTIVE_PROFILE_STORAGE_KEY = "finnSignalActiveProfileId";
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -65,7 +66,12 @@ function renderProfiles() {
     return;
   }
 
-  if (!state.activeProfileId) {
+  const savedProfileId = window.localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY) || "";
+  if (!state.activeProfileId && savedProfileId && state.profiles.some((profile) => profile.id === savedProfileId)) {
+    state.activeProfileId = savedProfileId;
+  }
+
+  if (!state.activeProfileId || !state.profiles.some((profile) => profile.id === state.activeProfileId)) {
     state.activeProfileId = state.profiles[0].id;
   }
 
@@ -76,18 +82,52 @@ function renderProfiles() {
     option.selected = profile.id === state.activeProfileId;
     select.appendChild(option);
   });
+  window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, state.activeProfileId);
+  renderProfileForm();
+}
+
+function renderProfileForm() {
+  const form = $("#profileForm");
+  if (!form) return;
+
+  const profile = activeProfile();
+  if (!profile) {
+    form.elements.display_name.value = "";
+    form.elements.email.value = "";
+    form.elements.interests.value = "";
+    return;
+  }
+
+  if (form.contains(document.activeElement)) {
+    return;
+  }
+
+  form.elements.display_name.value = profile.display_name || "";
+  form.elements.email.value = profile.email || "";
+  form.elements.interests.value = (profile.interests || []).join("\n");
 }
 
 function renderStatus() {
   const profile = activeProfile();
   const schedule = profile?.schedule || {};
+  const profileState = profile?.state || {};
   const schedulerLabel = state.scheduler.hosted ? "Hosted" : state.scheduler.installed ? "Installed" : "Not installed";
+  const lastSent = profileState.last_sent_at || "Never";
+  const lastChecked = profileState.last_scheduler_check_at || "Never";
   $("#statusStrip").innerHTML = `
     <div class="metric"><span>Gmail</span><strong>${profile?.gmail_connected ? "Connected" : "Not connected"}</strong></div>
     <div class="metric"><span>Sources</span><strong>${profile?.source_count || 0}</strong></div>
     <div class="metric"><span>Delivery</span><strong>${schedule.enabled === false ? "Paused" : schedule.time || "11:00"}</strong></div>
     <div class="metric"><span>Runner</span><strong>${schedulerLabel}</strong></div>
+    <div class="metric"><span>Last sent</span><strong>${escapeHtml(lastSent)}</strong></div>
+    <div class="metric"><span>Last checked</span><strong>${escapeHtml(lastChecked)}</strong></div>
   `;
+  if (profileState.last_error) {
+    $("#statusStrip").insertAdjacentHTML(
+      "beforeend",
+      `<div class="metric warning"><span>Last error</span><strong>${escapeHtml(profileState.last_error)}</strong></div>`
+    );
+  }
 
   $("#schedulerPill").textContent = schedulerLabel;
   $("#sourceCount").textContent = String(profile?.source_count || 0);
@@ -404,7 +444,7 @@ function escapeAttr(value) {
 }
 
 async function loadState() {
-  const selectedBeforeRefresh = $("#profileSelect")?.value || state.activeProfileId;
+  const selectedBeforeRefresh = $("#profileSelect")?.value || state.activeProfileId || window.localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY);
   const data = await api("/api/state");
   state.profiles = data.profiles || [];
   state.scheduler = data.scheduler || state.scheduler;
@@ -542,10 +582,12 @@ function wireTabs() {
 function wireForms() {
   $("#profileSelect").addEventListener("change", async (event) => {
     state.activeProfileId = event.target.value;
+    window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, state.activeProfileId);
     state.candidates = [];
     state.recommendations = [];
     renderCandidates([]);
     renderRecommendations([]);
+    renderProfileForm();
     renderStatus();
     await loadSources();
     if (activeTabId() === "rankings") {
@@ -564,10 +606,11 @@ function wireForms() {
         body: JSON.stringify(Object.fromEntries(form.entries())),
       });
       state.activeProfileId = data.profile.id;
-      formElement.reset();
+      window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, state.activeProfileId);
       await loadState();
+      showResult("#profileResult", "Profile saved.");
     } catch (error) {
-      alert(error.message);
+      showResult("#profileResult", error.message);
     } finally {
       done();
     }

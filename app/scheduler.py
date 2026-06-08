@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.profiles import list_profiles, profile_paths, read_json, write_json
+from app.profiles import list_profiles, profile_paths, read_json, resolve_profile_id, write_json
 
 
 LAUNCH_AGENT_LABEL = "com.finn.finnsignal.profiles"
@@ -88,10 +88,48 @@ def is_profile_due(
 
 def mark_sent(profile_id: str, now: datetime | None = None) -> dict[str, Any]:
     now = now or datetime.now()
+    profile_id = resolve_profile_id(profile_id)
     paths = profile_paths(profile_id)
     state = read_json(paths.state, {})
     state["last_sent_on"] = local_date_key(now)
     state["last_sent_at"] = now.isoformat(timespec="seconds")
+    state.pop("last_error", None)
+    state.pop("last_failed_at", None)
+    write_json(paths.state, state)
+    return state
+
+
+def mark_scheduler_checked(profile_id: str, now: datetime | None = None) -> dict[str, Any]:
+    now = now or datetime.now()
+    profile_id = resolve_profile_id(profile_id)
+    paths = profile_paths(profile_id)
+    state = read_json(paths.state, {})
+    state["last_scheduler_check_at"] = now.isoformat(timespec="seconds")
+    write_json(paths.state, state)
+    return state
+
+
+def mark_send_started(profile_id: str, now: datetime | None = None) -> dict[str, Any]:
+    now = now or datetime.now()
+    profile_id = resolve_profile_id(profile_id)
+    paths = profile_paths(profile_id)
+    state = read_json(paths.state, {})
+    state["last_send_started_at"] = now.isoformat(timespec="seconds")
+    write_json(paths.state, state)
+    return state
+
+
+def mark_send_failed(
+    profile_id: str,
+    error: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    now = now or datetime.now()
+    profile_id = resolve_profile_id(profile_id)
+    paths = profile_paths(profile_id)
+    state = read_json(paths.state, {})
+    state["last_failed_at"] = now.isoformat(timespec="seconds")
+    state["last_error"] = error
     write_json(paths.state, state)
     return state
 

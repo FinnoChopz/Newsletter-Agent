@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from html import escape
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from app.email_sender import send_email
 from app.gmail_reader import fetch_recent_newsletters
 from app.item_metadata import preserve_scored_item_metadata
 from app.manifests import save_manifest
-from app.profiles import load_profile, profile_paths
+from app.profiles import load_profile, profile_paths, read_sources
 from app.ranking import build_digest_manifest, load_yaml_file, max_digest_items, rank_scored_items
 
 
@@ -137,8 +138,25 @@ def write_profile_outputs(
     return {key: str(value) for key, value in paths.items()}
 
 
+def render_empty_digest(profile: dict[str, Any], days: int, source_count: int) -> str:
+    user_name = escape(str(profile.get("display_name") or "there"))
+    source_label = "source" if source_count == 1 else "sources"
+    return f"""<!doctype html>
+<html>
+  <body style="margin:0;background:#f6f2ea;font-family:Arial,sans-serif;color:#1c1b18;">
+    <main style="max-width:640px;margin:0 auto;padding:32px 20px;">
+      <p style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#7b7468;">Finn-Signal</p>
+      <h1 style="font-size:28px;line-height:1.15;margin:0 0 14px;">No new signal today</h1>
+      <p style="font-size:16px;line-height:1.55;margin:0 0 16px;">Hi {user_name}, Finn-Signal checked your approved newsletters and did not find any matching emails from the last {days} day(s).</p>
+      <p style="font-size:15px;line-height:1.55;margin:0;">It searched {source_count} approved {source_label}. If this looks wrong, open Finn-Signal and rescan or add more newsletter sources.</p>
+    </main>
+  </body>
+</html>"""
+
+
 def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
     profile = load_profile(profile_id)
+    profile_id = profile["id"]
     paths = profile_paths(profile_id)
 
     if not paths.token.exists():
@@ -148,6 +166,7 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
     created_at = datetime.now().isoformat(timespec="seconds")
     days = get_int_env("FINN_SIGNAL_DAYS", 2)
     max_emails = get_int_env("FINN_SIGNAL_MAX_EMAILS", 30)
+    source_count = len([source for source in read_sources(profile_id) if source.get("enabled", True)])
 
     emails = fetch_recent_newsletters(
         max_results=max_emails,
@@ -157,9 +176,16 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
     )
 
     if not emails:
+        send_email(
+            to=profile["email"],
+            subject=f"Finn-Signal - {date.today().isoformat()}",
+            body=render_empty_digest(profile, days=days, source_count=source_count),
+            html=True,
+            token_path=str(paths.token),
+        )
         return {
             "profile_id": profile_id,
-            "status": "no_newsletters",
+            "status": "sent_no_newsletters",
             "message": "No approved newsletter emails were found in the current lookback window.",
         }
 
