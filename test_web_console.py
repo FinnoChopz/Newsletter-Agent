@@ -113,6 +113,7 @@ class WebConsoleTests(unittest.TestCase):
         self.assertIn('id="guideWidget"', html)
         self.assertIn('name="interests"', html)
         self.assertIn("Save profile", html)
+        self.assertIn('id="storageBanner"', html)
 
 
 if __name__ == "__main__":

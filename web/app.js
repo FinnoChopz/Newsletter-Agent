@@ -6,6 +6,7 @@ const state = {
   rankings: null,
   rankingFilter: "all",
   scheduler: { installed: false, path: "" },
+  storage: null,
 };
 
 window.finnSignalState = state;
@@ -141,6 +142,36 @@ function renderStatus() {
     form.elements.frequency.value = schedule.frequency || "daily";
     form.elements.enabled.checked = schedule.enabled !== false;
   }
+}
+
+function renderStorage() {
+  const banner = $("#storageBanner");
+  if (!banner) return;
+
+  const storage = state.storage;
+  if (!storage) {
+    banner.hidden = true;
+    banner.innerHTML = "";
+    return;
+  }
+
+  const hasProblem = storage.warning || !storage.writable;
+  if (!hasProblem) {
+    banner.hidden = true;
+    banner.innerHTML = "";
+    return;
+  }
+
+  banner.hidden = false;
+  banner.innerHTML = `
+    <strong>Profile storage needs attention</strong>
+    <p>${escapeHtml(storage.warning || storage.error || "Profile storage is not writable.")}</p>
+    <div class="storage-facts">
+      <span>Path: ${escapeHtml(storage.path || "")}</span>
+      <span>${storage.writable ? "Writable" : "Not writable"}</span>
+      <span>${storage.persistent ? "Persistent" : "Not confirmed persistent"}</span>
+    </div>
+  `;
 }
 
 function candidateClass(candidate) {
@@ -448,11 +479,13 @@ async function loadState() {
   const data = await api("/api/state");
   state.profiles = data.profiles || [];
   state.scheduler = data.scheduler || state.scheduler;
+  state.storage = data.storage || null;
   if (selectedBeforeRefresh && state.profiles.some((profile) => profile.id === selectedBeforeRefresh)) {
     state.activeProfileId = selectedBeforeRefresh;
   }
   renderProfiles();
   renderStatus();
+  renderStorage();
   await loadSources();
 }
 

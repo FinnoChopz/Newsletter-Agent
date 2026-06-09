@@ -30,6 +30,7 @@ from app.profiles import (
     read_sources,
     resolve_profile_id,
     set_source_enabled,
+    storage_status,
     update_schedule,
     upsert_source,
     write_json,
@@ -563,13 +564,14 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             if parsed.path == "/healthz":
-                self.send_json({"ok": True})
+                self.send_json({"ok": True, "storage": storage_status()})
                 return
 
             if parsed.path == "/api/state":
                 self.send_json(
                     {
                         "profiles": list_profiles(),
+                        "storage": storage_status(),
                         "scheduler": {
                             "installed": launch_agent_path().exists(),
                             "hosted": bool_env("FINN_SIGNAL_ENABLE_HOSTED_SCHEDULER", False),

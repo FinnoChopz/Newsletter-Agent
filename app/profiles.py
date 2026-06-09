@@ -40,6 +40,59 @@ def users_root(root: str | Path | None = None) -> Path:
     return DEFAULT_USERS_ROOT
 
 
+def storage_status(root: str | Path | None = None) -> dict[str, Any]:
+    base = users_root(root)
+    parent = base.parent
+    configured_root = os.getenv("FINN_SIGNAL_USERS_DIR", "")
+    render_runtime = any(
+        os.getenv(name)
+        for name in [
+            "RENDER",
+            "RENDER_SERVICE_ID",
+            "RENDER_EXTERNAL_HOSTNAME",
+            "RENDER_INSTANCE_ID",
+        ]
+    )
+    expected_render_root = str(base).startswith(str(RENDER_USERS_ROOT.parent))
+    parent_exists = parent.exists()
+    root_exists = base.exists()
+    writable = False
+    error = ""
+
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        probe = base / ".write_probe"
+        probe.write_text(datetime.now().isoformat(timespec="seconds"), encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        writable = True
+        root_exists = True
+    except Exception as exc:
+        error = str(exc)
+
+    persistent = expected_render_root and parent_exists and writable
+    warning = ""
+    if render_runtime and not persistent:
+        warning = (
+            "Render is running without confirmed persistent profile storage. "
+            "Attach a Render Disk mounted at /var/data and set FINN_SIGNAL_USERS_DIR=/var/data/users."
+        )
+    elif not configured_root and not expected_render_root:
+        warning = "Using local fallback storage. This is fine locally, but not for hosted Render profiles."
+
+    return {
+        "path": str(base),
+        "env_value": configured_root,
+        "render_runtime": render_runtime,
+        "expected_render_root": expected_render_root,
+        "parent_exists": parent_exists,
+        "root_exists": root_exists,
+        "writable": writable,
+        "persistent": persistent,
+        "warning": warning,
+        "error": error,
+    }
+
+
 def slugify_user_id(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
     return slug or "user"

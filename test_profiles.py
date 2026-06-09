@@ -9,6 +9,7 @@ from app.profiles import (
     profile_paths,
     read_yaml,
     read_sources,
+    storage_status,
     update_schedule,
     upsert_source,
 )
@@ -105,6 +106,15 @@ class ProfileTests(unittest.TestCase):
             create_profile("Amelia", "amelia@example.com", root=tmp)
 
             self.assertEqual(len(list_profiles(root=tmp)), 1)
+
+    def test_storage_status_reports_configured_writable_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            status = storage_status(root=tmp)
+
+        self.assertEqual(status["path"], tmp)
+        self.assertTrue(status["writable"])
+        self.assertTrue(status["root_exists"])
+        self.assertEqual(status["error"], "")
 
 
 if __name__ == "__main__":
