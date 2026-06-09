@@ -37,6 +37,26 @@ class NewsletterDiscoveryTests(unittest.TestCase):
         self.assertEqual(source["status"], "needs_subscription")
         self.assertEqual(recommendations[0]["confidence"], 1.0)
 
+    def test_recommendation_to_source_tracks_subscription_attempt(self):
+        recommendation = {
+            "name": "Energy Brief",
+            "why_relevant": "Matches the query.",
+            "subscription_url": "https://example.com/newsletter",
+            "likely_senders": [],
+            "topics": ["oil"],
+        }
+
+        source = recommendation_to_source(
+            recommendation,
+            subscription_email="amelia+finnsignal@gmail.com",
+            status="pending_subscription",
+        )
+
+        self.assertEqual(source["senders"], ["example.com"])
+        self.assertEqual(source["status"], "pending_subscription")
+        self.assertEqual(source["subscription_email"], "amelia+finnsignal@gmail.com")
+        self.assertTrue(source["signup_attempted_at"])
+
 
 if __name__ == "__main__":
     unittest.main()

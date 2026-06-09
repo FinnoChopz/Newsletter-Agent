@@ -95,6 +95,7 @@ function renderProfileForm() {
   if (!profile) {
     form.elements.display_name.value = "";
     form.elements.email.value = "";
+    form.elements.subscription_email.value = "";
     form.elements.interests.value = "";
     return;
   }
@@ -105,6 +106,7 @@ function renderProfileForm() {
 
   form.elements.display_name.value = profile.display_name || "";
   form.elements.email.value = profile.email || "";
+  form.elements.subscription_email.value = profile.subscription_email || "";
   form.elements.interests.value = (profile.interests || []).join("\n");
 }
 
@@ -223,10 +225,27 @@ function renderSources(sources) {
   list.innerHTML = sources
     .map((source) => {
       const sender = (source.senders || [])[0] || "";
-      const statusClass = source.enabled === false ? "bad" : source.status === "needs_subscription" ? "warn" : "good";
-      const status = source.enabled === false ? "Off" : source.status === "needs_subscription" ? "Needs subscription" : "On";
+      const pending = ["needs_subscription", "pending_subscription", "pending_confirmation"].includes(source.status);
+      const statusClass = source.enabled === false ? "bad" : pending ? "warn" : "good";
+      const statusLabels = {
+        receiving: "Receiving",
+        needs_subscription: "Needs subscription",
+        pending_subscription: "Pending subscription",
+        pending_confirmation: "Pending confirmation",
+        failed_signup: "Signup failed",
+      };
+      const status = source.enabled === false ? "Tracking off" : statusLabels[source.status] || "Receiving";
       const link = source.subscription_url
-        ? `<a href="${escapeAttr(source.subscription_url)}" target="_blank" rel="noreferrer">Subscribe</a>`
+        ? `<a href="${escapeAttr(source.subscription_url)}" data-source-status="${escapeAttr(sender)}" data-status="pending_subscription" target="_blank" rel="noreferrer">Open subscribe page</a>`
+        : "";
+      const subscriptionEmail = source.subscription_email || activeProfile()?.subscription_email || "";
+      const sourceActions = pending
+        ? `
+          <div class="rec-actions">
+            <button class="secondary" data-check-source="${escapeAttr(sender)}">Check Gmail</button>
+            <button class="secondary" data-source-status="${escapeAttr(sender)}" data-status="receiving">Mark receiving</button>
+          </div>
+        `
         : "";
       return `
         <article class="item ${statusClass}">
@@ -242,9 +261,11 @@ function renderSources(sources) {
           <div class="meta">
             <span>${status}</span>
             <span>${escapeHtml(source.source_type || "manual")}</span>
+            ${subscriptionEmail ? `<span>Subscribe with ${escapeHtml(subscriptionEmail)}</span>` : ""}
             ${link ? `<span>${link}</span>` : ""}
           </div>
           ${source.reason ? `<p>${escapeHtml(source.reason)}</p>` : ""}
+          ${sourceActions}
         </article>
       `;
     })
@@ -266,14 +287,17 @@ function renderRecommendations(recommendations) {
             <h3>${escapeHtml(rec.name)}</h3>
             <p>${escapeHtml(rec.description || "")}</p>
           </div>
-          <button class="secondary" data-add-rec="${index}">Add</button>
+          <div class="rec-actions">
+            <button class="secondary" data-add-rec="${index}" data-mode="track">Track in Finn-Signal</button>
+            ${rec.subscription_url ? `<a class="button-link secondary" data-add-rec="${index}" data-mode="subscribe" href="${escapeAttr(rec.subscription_url)}" target="_blank" rel="noreferrer">Open subscribe page</a>` : ""}
+          </div>
         </div>
         <p>${escapeHtml(rec.why_relevant || "")}</p>
         <div class="source-senders">${escapeHtml((rec.likely_senders || []).join(", "))}</div>
         <div class="meta">
           <span>${Math.round((rec.confidence || 0) * 100)}%</span>
+          ${activeProfile()?.subscription_email ? `<span>Subscribe with ${escapeHtml(activeProfile().subscription_email)}</span>` : ""}
           ${(rec.topics || []).slice(0, 4).map((topic) => `<span>${escapeHtml(topic)}</span>`).join("")}
-          ${rec.subscription_url ? `<span><a href="${escapeAttr(rec.subscription_url)}" target="_blank" rel="noreferrer">Subscribe</a></span>` : ""}
         </div>
       </article>
     `)
@@ -724,6 +748,53 @@ function wireForms() {
   });
 
   $("#sourceList").addEventListener("click", async (event) => {
+    const checkButton = event.target.closest("[data-check-source]");
+    if (checkButton) {
+      const done = setBusy(checkButton, "Checking...");
+      try {
+        const profile = requireProfile();
+        const data = await api(`/api/profiles/${encodeURIComponent(profile.id)}/sources/check`, {
+          method: "POST",
+          body: JSON.stringify({ sender: checkButton.dataset.checkSource, days: 30 }),
+        });
+        renderSources(data.sources || []);
+        await loadState();
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        done();
+      }
+      return;
+    }
+
+    const statusControl = event.target.closest("[data-source-status]");
+    if (statusControl) {
+      if (statusControl.tagName === "A") {
+        event.preventDefault();
+      }
+      const done = setBusy(statusControl, statusControl.dataset.status === "receiving" ? "Saving..." : "Tracking...");
+      try {
+        const profile = requireProfile();
+        const data = await api(`/api/profiles/${encodeURIComponent(profile.id)}/sources/status`, {
+          method: "POST",
+          body: JSON.stringify({
+            sender: statusControl.dataset.sourceStatus,
+            status: statusControl.dataset.status,
+          }),
+        });
+        renderSources(data.sources || []);
+        await loadState();
+        if (statusControl.tagName === "A" && statusControl.href) {
+          window.open(statusControl.href, "_blank", "noopener,noreferrer");
+        }
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        done();
+      }
+      return;
+    }
+
     const button = event.target.closest("[data-toggle-source]");
     if (!button) return;
     const done = setBusy(button, "Saving...");
@@ -770,16 +841,22 @@ function wireForms() {
   $("#recommendationList").addEventListener("click", async (event) => {
     const button = event.target.closest("[data-add-rec]");
     if (!button) return;
-    const done = setBusy(button, "Adding...");
+    if (button.tagName === "A") {
+      event.preventDefault();
+    }
+    const done = setBusy(button, button.dataset.mode === "subscribe" ? "Tracking..." : "Adding...");
     try {
       const profile = requireProfile();
       const recommendation = state.recommendations[Number(button.dataset.addRec)];
       const data = await api(`/api/profiles/${encodeURIComponent(profile.id)}/recommendations/add`, {
         method: "POST",
-        body: JSON.stringify({ recommendation }),
+        body: JSON.stringify({ recommendation, mode: button.dataset.mode || "track" }),
       });
       renderSources(data.sources || []);
       await loadState();
+      if (button.tagName === "A" && button.href) {
+        window.open(button.href, "_blank", "noopener,noreferrer");
+      }
     } catch (error) {
       alert(error.message);
     } finally {

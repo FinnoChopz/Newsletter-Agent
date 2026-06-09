@@ -5,7 +5,14 @@ from unittest.mock import patch
 from pathlib import Path
 
 from app.profiles import create_profile
-from web_console import build_oauth_flow, console_host, parse_site_guide_output, profile_rankings, render_feedback_app
+from web_console import (
+    build_oauth_flow,
+    console_host,
+    parse_site_guide_output,
+    profile_rankings,
+    render_feedback_app,
+    source_confirmation_query,
+)
 
 
 class WebConsoleTests(unittest.TestCase):
@@ -107,13 +114,35 @@ class WebConsoleTests(unittest.TestCase):
 
     def test_console_shell_exposes_rankings_and_guide(self):
         html = Path("web/index.html").read_text(encoding="utf-8")
+        app_js = Path("web/app.js").read_text(encoding="utf-8")
 
         self.assertIn('data-tab="rankings"', html)
         self.assertIn('id="rankingList"', html)
         self.assertIn('id="guideWidget"', html)
         self.assertIn('name="interests"', html)
+        self.assertIn('name="subscription_email"', html)
         self.assertIn("Save profile", html)
         self.assertIn('id="storageBanner"', html)
+        self.assertIn("Track recommendations as sources", html)
+        self.assertIn("single daily digest", html)
+        self.assertIn("Sends exactly one digest now", html)
+        self.assertIn("Track in Finn-Signal", app_js)
+        self.assertIn("Open subscribe page", app_js)
+        self.assertIn("Subscribe with", app_js)
+        self.assertIn("Check Gmail", app_js)
+        self.assertIn("Mark receiving", app_js)
+
+    def test_source_confirmation_query_uses_subscription_alias_and_sender(self):
+        query = source_confirmation_query(
+            {"subscription_email": "amelia+finnsignal@gmail.com"},
+            {"senders": ["Digest <news@example.com>"]},
+            days=14,
+        )
+
+        self.assertIn("newer_than:14d", query)
+        self.assertIn("to:amelia+finnsignal@gmail.com", query)
+        self.assertIn("deliveredto:amelia+finnsignal@gmail.com", query)
+        self.assertIn("from:news@example.com", query)
 
 
 if __name__ == "__main__":

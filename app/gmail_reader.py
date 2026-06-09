@@ -38,6 +38,19 @@ def extract_sender_email(sender: str) -> str:
     value = extract_email_address(sender)
     match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", value, re.IGNORECASE)
     return match.group(0).lower() if match else ""
+
+
+def extract_sender_query_value(sender: str) -> str:
+    email = extract_sender_email(sender)
+    if email:
+        return email
+
+    value = extract_email_address(sender).strip().lower()
+    domain = value.removeprefix("https://").removeprefix("http://").removeprefix("www.")
+    domain = domain.split("/", 1)[0]
+    if re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", domain):
+        return domain
+    return ""
 load_dotenv()
 
 SCOPES = [
@@ -479,16 +492,18 @@ def build_newsletter_query(
     for source in data.get("sources", []):
         if not source.get("enabled", True):
             continue
+        if source.get("status", "receiving") != "receiving":
+            continue
 
         for sender in source.get("senders", []):
-            email = extract_sender_email(sender)
-            if not email or email in seen_senders:
+            sender_value = extract_sender_query_value(sender)
+            if not sender_value or sender_value in seen_senders:
                 continue
-            senders.append(email)
-            seen_senders.add(email)
+            senders.append(sender_value)
+            seen_senders.add(sender_value)
 
     if not senders:
-        raise ValueError("No enabled newsletter senders found.")
+        raise ValueError("No receiving newsletter senders found.")
 
     sender_query = " OR ".join([f"from:{sender}" for sender in senders])
 

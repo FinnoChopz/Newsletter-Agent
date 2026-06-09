@@ -91,10 +91,17 @@ class GmailReaderTests(unittest.TestCase):
 sources:
   - name: Good Source
     enabled: true
+    status: receiving
     senders:
       - Good Source
       - News Desk <News@Example.com>
       - news@example.com
+      - digest.example.com
+  - name: Pending Source
+    enabled: true
+    status: pending_subscription
+    senders:
+      - pending@example.com
   - name: Disabled Source
     enabled: false
     senders:
@@ -107,7 +114,9 @@ sources:
 
         self.assertIn("newer_than:3d", query)
         self.assertIn("from:news@example.com", query)
+        self.assertIn("from:digest.example.com", query)
         self.assertNotIn("Good Source", query)
+        self.assertNotIn("pending@example.com", query)
         self.assertNotIn("disabled@example.com", query)
         self.assertEqual(query.count("from:news@example.com"), 1)
 

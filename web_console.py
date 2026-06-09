@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import traceback
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,13 @@ from openai import OpenAI
 
 from app.config import get_cheap_model
 from app.feedback import apply_parsed_feedback
-from app.gmail_reader import SCOPES, classify_sender_with_model, discover_newsletters
+from app.gmail_reader import (
+    SCOPES,
+    classify_sender_with_model,
+    discover_newsletters,
+    extract_sender_query_value,
+    fetch_recent_emails,
+)
 from app.manifests import load_manifest
 from app.newsletter_discovery import discover_recommendations, recommendation_to_source
 from app.profiles import (
@@ -30,6 +37,7 @@ from app.profiles import (
     read_sources,
     resolve_profile_id,
     set_source_enabled,
+    set_source_status,
     storage_status,
     update_schedule,
     upsert_source,
@@ -484,15 +492,68 @@ def profile_rankings(profile_id: str) -> dict[str, Any]:
     }
 
 
+def find_source_by_sender(profile_id: str, sender: str) -> dict[str, Any]:
+    sender_key = sender.strip().lower()
+    for source in read_sources(profile_id):
+        if sender_key in {value.lower() for value in source.get("senders", [])}:
+            return source
+    raise FileNotFoundError(f"No source found for {sender}.")
+
+
+def source_confirmation_query(profile: dict[str, Any], source: dict[str, Any], days: int = 30) -> str:
+    subscription_email = str(source.get("subscription_email") or profile.get("subscription_email") or profile.get("email"))
+    sender_values = [
+        value
+        for value in (extract_sender_query_value(sender) for sender in source.get("senders", []))
+        if value
+    ]
+    to_query = f"(to:{subscription_email} OR deliveredto:{subscription_email})"
+    if sender_values:
+        sender_query = " OR ".join([f"from:{value}" for value in sorted(set(sender_values))])
+        return f"newer_than:{days}d -in:spam -in:trash {to_query} ({sender_query})"
+    return f"newer_than:{days}d -in:spam -in:trash {to_query}"
+
+
+def check_source_confirmation(profile_id: str, sender: str, days: int = 30) -> dict[str, Any]:
+    profile = load_profile(profile_id)
+    source = find_source_by_sender(profile_id, sender)
+    query = source_confirmation_query(profile, source, days=days)
+    emails = fetch_recent_emails(
+        max_results=10,
+        query=query,
+        token_path=profile_paths(profile_id).token,
+    )
+    now = datetime.now().isoformat(timespec="seconds")
+    if emails:
+        sources = set_source_status(
+            profile_id,
+            sender=sender,
+            status="receiving",
+            extra={
+                "confirmation_checked_at": now,
+                "confirmed_from_email_id": emails[0].get("id", ""),
+            },
+        )
+        return {"status": "receiving", "matched": True, "emails": emails[:3], "sources": sources}
+
+    sources = set_source_status(
+        profile_id,
+        sender=sender,
+        status="pending_confirmation",
+        extra={"confirmation_checked_at": now},
+    )
+    return {"status": "pending_confirmation", "matched": False, "emails": [], "sources": sources}
+
+
 def site_guide_context() -> str:
     return f"""
 Finn-Signal is a web console with these tabs:
 - Onboarding: create a profile, connect Gmail, scan recent mail, approve newsletter candidates.
 - Rankings: inspect the latest ranked digest, score breakdowns, model reasoning, and article links.
-- Sources: manually add newsletter senders and turn approved senders on or off.
-- Discover: type a natural-language topic request and let the newsletter discovery agent recommend sources.
-- Schedule: change delivery time/frequency and install the local background sender.
-- Runs: send one test digest immediately.
+- Sources: manually add newsletter senders, inspect subscription status, check Gmail for first emails, and turn tracked senders on or off.
+- Discover: type a natural-language topic request, track recommended newsletters, or open subscription pages using the profile signup address.
+- Schedule: change delivery time/frequency for the hosted Render sender.
+- Runs: send exactly one digest immediately using receiving tracked sources.
 
 Visual map:
 - The profile selector is in the top-right header.
@@ -619,6 +680,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 profile = create_profile(
                     display_name=str(body.get("display_name", "")),
                     email=str(body.get("email", "")),
+                    subscription_email=str(body.get("subscription_email", "")),
                     interests=str(body.get("interests", "")),
                 )
                 self.send_json({"profile": profile}, status=201)
@@ -710,6 +772,25 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             self.send_json({"sources": sources})
             return
 
+        if action == ["sources", "status"]:
+            sources = set_source_status(
+                profile_id,
+                sender=str(body.get("sender", "")),
+                status=str(body.get("status", "needs_subscription")),
+            )
+            self.send_json({"sources": sources})
+            return
+
+        if action == ["sources", "check"]:
+            self.send_json(
+                check_source_confirmation(
+                    profile_id,
+                    sender=str(body.get("sender", "")),
+                    days=int(body.get("days", 30)),
+                )
+            )
+            return
+
         if action == ["sources", "import-candidates"]:
             selected = body.get("candidates", [])
             for candidate in selected:
@@ -738,7 +819,11 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             write_json(profile_paths(profile_id).discovery, recommendations)
             if body.get("auto_add", True):
                 for recommendation in recommendations:
-                    source = recommendation_to_source(recommendation)
+                    source = recommendation_to_source(
+                        recommendation,
+                        subscription_email=str(profile.get("subscription_email", "")),
+                        status="needs_subscription",
+                    )
                     if source.get("senders"):
                         upsert_source(profile_id, source)
             self.send_json(
@@ -750,9 +835,16 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             return
 
         if action == ["recommendations", "add"]:
-            source = recommendation_to_source(body.get("recommendation", body))
+            profile = load_profile(profile_id)
+            mode = str(body.get("mode", "track"))
+            status = "pending_subscription" if mode == "subscribe" else "needs_subscription"
+            source = recommendation_to_source(
+                body.get("recommendation", body),
+                subscription_email=str(profile.get("subscription_email", "")),
+                status=status,
+            )
             sources = upsert_source(profile_id, source)
-            self.send_json({"sources": sources})
+            self.send_json({"sources": sources, "source": source})
             return
 
         if action == ["schedule"]:

@@ -64,6 +64,10 @@
               <input name="email" type="email" autocomplete="email" placeholder="name@gmail.com" required>
             </label>
             <label>
+              Newsletter signup address
+              <input name="subscription_email" type="email" autocomplete="email" placeholder="name+finnsignal@gmail.com">
+            </label>
+            <label>
               Interests
               <textarea name="interests" rows="6" placeholder="AI in education, local politics, climate tech, food writing, parenting, architecture, public health" required></textarea>
             </label>
@@ -87,7 +91,7 @@
             <h2>Inbox scan</h2>
             <span class="step-pill">Step 3</span>
           </div>
-          <p class="quiet">This scans recent mail for newsletter-shaped senders. You choose which ones should feed the digest.</p>
+          <p class="quiet">This reads recent mail only to find newsletter-shaped senders. Approved sources feed the single daily digest; they do not send extra emails.</p>
           <div class="inline-controls">
             <label>
               Days
@@ -181,11 +185,12 @@
             <h2>Find newsletters</h2>
               <span class="step-pill">Agent</span>
           </div>
+          <p class="quiet">Discover finds newsletter candidates. Use the profile signup address for subscriptions so new mail can be filtered into Finn-Signal without crowding the main inbox.</p>
           <textarea id="discoveryQuery" rows="4" placeholder="Add some newsletters or Substacks about the US-Iran war and the impact on oil."></textarea>
           <div class="inline-controls">
             <label class="checkline">
               <input id="autoAddDiscovery" type="checkbox" checked>
-              Add recommendations to sources
+              Track recommendations as sources
             </label>
             <button id="runDiscovery">Find newsletters</button>
           </div>
@@ -195,7 +200,7 @@
 
       <section class="view" id="schedule">
         <div class="notice">
-          Render handles delivery for onboarded users. Change the selected profile's time or frequency here; their laptop does not need to be on.
+          Render sends one digest for each enabled profile at the saved time. Tracked newsletters are read into that digest, not forwarded individually.
         </div>
         <div class="grid two">
           <form class="panel" id="scheduleForm">
@@ -240,7 +245,7 @@
             <h2>Test run</h2>
             <span class="step-pill">Selected profile</span>
           </div>
-          <p class="quiet">Sends one digest now using the selected profile's Gmail and approved sources.</p>
+          <p class="quiet">Sends exactly one digest now using the selected profile's Gmail and tracked sources.</p>
           <button id="sendTest">Send digest now</button>
           <pre class="output" id="runOutput"></pre>
         </div>

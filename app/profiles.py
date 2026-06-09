@@ -14,6 +14,7 @@ import yaml
 DEFAULT_USERS_ROOT = Path("data/users")
 RENDER_USERS_ROOT = Path("/var/data/users")
 BASE_PREFERENCES_PATH = Path("data/preferences.yaml")
+SUBSCRIPTION_ALIAS_TAG = "finnsignal"
 
 
 @dataclass(frozen=True)
@@ -199,6 +200,37 @@ def split_interest_text(raw: str | list[str] | None) -> list[str]:
     return interests
 
 
+def default_subscription_email(email: str) -> str:
+    value = email.strip()
+    if "@" not in value:
+        return value
+
+    local, domain = value.rsplit("@", 1)
+    if "+" in local:
+        local = local.split("+", 1)[0]
+
+    if domain.lower() in {"gmail.com", "googlemail.com"}:
+        return f"{local}+{SUBSCRIPTION_ALIAS_TAG}@{domain}"
+
+    return value
+
+
+def normalize_subscription_email(email: str, fallback_email: str) -> str:
+    value = email.strip()
+    if not value:
+        return default_subscription_email(fallback_email)
+    if "@" not in value:
+        raise ValueError("Enter a valid subscription email address.")
+    return value
+
+
+def hydrate_profile_defaults(profile: dict[str, Any]) -> dict[str, Any]:
+    email = str(profile.get("email", "")).strip()
+    if "subscription_email" not in profile:
+        profile = {**profile, "subscription_email": default_subscription_email(email)}
+    return profile
+
+
 def profile_preferences(display_name: str, email: str, interests: list[str]) -> dict[str, Any]:
     base = read_yaml(BASE_PREFERENCES_PATH, {})
     user_name = display_name.strip() or email
@@ -228,12 +260,15 @@ def default_profile(
     email: str,
     profile_id: str,
     interests: list[str] | None = None,
+    subscription_email: str = "",
 ) -> dict[str, Any]:
     now = datetime.now().isoformat(timespec="seconds")
+    email = email.strip()
     return {
         "id": profile_id,
         "display_name": display_name.strip() or email,
-        "email": email.strip(),
+        "email": email,
+        "subscription_email": normalize_subscription_email(subscription_email, email),
         "interests": interests or [],
         "created_at": now,
         "updated_at": now,
@@ -249,19 +284,23 @@ def create_profile(
     display_name: str,
     email: str,
     interests: str | list[str] | None = None,
+    subscription_email: str = "",
     root: str | Path | None = None,
 ) -> dict[str, Any]:
     email = email.strip()
     if "@" not in email:
         raise ValueError("Enter a valid email address.")
+    provided_subscription_email = subscription_email.strip()
     interest_list = split_interest_text(interests)
     existing_profile_id = find_profile_id_by_email(email, root=root)
     if existing_profile_id:
         paths = profile_paths(existing_profile_id, root)
-        profile = read_json(paths.meta, {})
+        profile = hydrate_profile_defaults(read_json(paths.meta, {}))
         if display_name.strip():
             profile["display_name"] = display_name.strip()
         profile["email"] = email
+        if provided_subscription_email:
+            profile["subscription_email"] = normalize_subscription_email(provided_subscription_email, email)
         if interest_list:
             profile["interests"] = interest_list
             write_yaml(
@@ -280,7 +319,8 @@ def create_profile(
     paths = profile_paths(profile_id, root)
     paths.root.mkdir(parents=True, exist_ok=True)
 
-    profile = default_profile(display_name, email, profile_id, interest_list)
+    subscription_email = normalize_subscription_email(subscription_email, email)
+    profile = default_profile(display_name, email, profile_id, interest_list, subscription_email)
     write_json(paths.meta, profile)
 
     write_yaml(paths.preferences, profile_preferences(display_name, email, interest_list))
@@ -297,10 +337,12 @@ def load_profile(profile_id: str, root: str | Path | None = None) -> dict[str, A
     paths = profile_paths(profile_id, root)
     if not paths.meta.exists():
         raise FileNotFoundError(f"No profile named {profile_id}.")
-    return profile_with_status(read_json(paths.meta, {}), root=root)
+    profile = hydrate_profile_defaults(read_json(paths.meta, {}))
+    return profile_with_status(profile, root=root)
 
 
 def save_profile(profile: dict[str, Any], root: str | Path | None = None) -> dict[str, Any]:
+    profile = hydrate_profile_defaults(profile)
     profile = {**profile, "updated_at": datetime.now().isoformat(timespec="seconds")}
     write_json(profile_paths(profile["id"], root).meta, profile)
     return profile_with_status(profile, root=root)
@@ -315,7 +357,7 @@ def list_profiles(root: str | Path | None = None) -> list[dict[str, Any]]:
     for path in sorted(base.iterdir()):
         meta_path = path / "profile.json"
         if meta_path.exists():
-            profiles.append(profile_with_status(read_json(meta_path, {}), root=root))
+            profiles.append(profile_with_status(hydrate_profile_defaults(read_json(meta_path, {})), root=root))
     return profiles
 
 
@@ -329,7 +371,11 @@ def profile_with_status(
     return {
         **profile,
         "gmail_connected": paths.token.exists(),
-        "source_count": len([source for source in sources if source.get("enabled", True)]),
+        "source_count": len([
+            source
+            for source in sources
+            if source.get("enabled", True) and source.get("status", "receiving") == "receiving"
+        ]),
         "state": state,
         "paths": {
             "root": str(paths.root),
@@ -375,6 +421,9 @@ def normalize_source(source: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(source.get("enabled", True)),
         "source_type": source.get("source_type", "manual"),
         "status": source.get("status", "receiving"),
+        "subscription_email": source.get("subscription_email", ""),
+        "signup_attempted_at": source.get("signup_attempted_at", ""),
+        "confirmation_checked_at": source.get("confirmation_checked_at", ""),
         "reason": source.get("reason", ""),
         "topics": source.get("topics", []),
         "subscription_url": source.get("subscription_url", ""),
@@ -420,6 +469,39 @@ def set_source_enabled(
         if sender_key in {value.lower() for value in source.get("senders", [])}:
             source["enabled"] = enabled
             source["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    return write_sources(profile_id, sources, root=root)
+
+
+def set_source_status(
+    profile_id: str,
+    sender: str,
+    status: str,
+    root: str | Path | None = None,
+    extra: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    sender_key = sender.strip().lower()
+    allowed_statuses = {
+        "needs_subscription",
+        "pending_subscription",
+        "pending_confirmation",
+        "receiving",
+        "failed_signup",
+    }
+    if status not in allowed_statuses:
+        raise ValueError(f"Unknown source status: {status}")
+
+    sources = read_sources(profile_id, root=root)
+    now = datetime.now().isoformat(timespec="seconds")
+    for source in sources:
+        if sender_key in {value.lower() for value in source.get("senders", [])}:
+            source["status"] = status
+            source["updated_at"] = now
+            if status == "pending_subscription":
+                source["signup_attempted_at"] = source.get("signup_attempted_at") or now
+            if status == "receiving":
+                source["enabled"] = True
+            if extra:
+                source.update(extra)
     return write_sources(profile_id, sources, root=root)
 
 

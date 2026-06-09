@@ -4,11 +4,13 @@ from pathlib import Path
 
 from app.profiles import (
     create_profile,
+    default_subscription_email,
     list_profiles,
     load_profile,
     profile_paths,
     read_yaml,
     read_sources,
+    set_source_status,
     storage_status,
     update_schedule,
     upsert_source,
@@ -28,6 +30,7 @@ class ProfileTests(unittest.TestCase):
             preferences = read_yaml(paths.preferences, {})
 
             self.assertEqual(profile["display_name"], "Amelia")
+            self.assertEqual(profile["subscription_email"], "amelia@example.com")
             self.assertEqual(profile["interests"], ["climate tech", "food writing", "public health"])
             self.assertTrue(paths.meta.exists())
             self.assertTrue(paths.sources.exists())
@@ -53,6 +56,11 @@ class ProfileTests(unittest.TestCase):
 
             self.assertEqual(len(sources), 1)
             self.assertEqual(sources[0]["name"], "New")
+
+    def test_default_subscription_email_uses_gmail_alias(self):
+        self.assertEqual(default_subscription_email("amelia@gmail.com"), "amelia+finnsignal@gmail.com")
+        self.assertEqual(default_subscription_email("amy+old@gmail.com"), "amy+finnsignal@gmail.com")
+        self.assertEqual(default_subscription_email("amelia@example.com"), "amelia@example.com")
 
     def test_create_profile_updates_existing_email_and_email_lookup_works(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -84,6 +92,32 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(len(list_profiles(root=tmp)), 1)
             self.assertEqual(preferences["strong_interests"], ["architecture", "public health"])
             self.assertEqual(len(read_sources(profile["id"], root=tmp)), 1)
+
+    def test_pending_subscription_source_does_not_count_as_receiving(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = create_profile("Amelia", "amelia@gmail.com", root=tmp)
+            upsert_source(
+                profile["id"],
+                {
+                    "name": "Energy Brief",
+                    "senders": "brief.example.com",
+                    "status": "needs_subscription",
+                },
+                root=tmp,
+            )
+
+            pending = load_profile(profile["id"], root=tmp)
+            self.assertEqual(pending["source_count"], 0)
+
+            set_source_status(
+                profile["id"],
+                sender="brief.example.com",
+                status="receiving",
+                root=tmp,
+            )
+            receiving = load_profile(profile["id"], root=tmp)
+
+            self.assertEqual(receiving["source_count"], 1)
 
     def test_update_schedule_validates_time_and_frequency(self):
         with tempfile.TemporaryDirectory() as tmp:

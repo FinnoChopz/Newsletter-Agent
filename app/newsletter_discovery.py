@@ -116,19 +116,26 @@ def normalize_recommendations(data: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def recommendation_to_source(recommendation: dict[str, Any]) -> dict[str, Any]:
+def recommendation_to_source(
+    recommendation: dict[str, Any],
+    subscription_email: str = "",
+    status: str = "needs_subscription",
+) -> dict[str, Any]:
     senders = recommendation.get("likely_senders") or []
     if not senders and recommendation.get("subscription_url"):
         domain = urlparse(recommendation["subscription_url"]).netloc
         if domain:
             senders = [domain.removeprefix("www.")]
+    now = datetime.now().isoformat(timespec="seconds")
 
     return {
         "name": recommendation.get("name", "Discovered newsletter"),
         "senders": senders,
         "enabled": True,
         "source_type": "discovered",
-        "status": "needs_subscription",
+        "status": status,
+        "subscription_email": subscription_email,
+        "signup_attempted_at": now if status == "pending_subscription" else "",
         "reason": recommendation.get("why_relevant", ""),
         "topics": recommendation.get("topics", []),
         "subscription_url": recommendation.get("subscription_url", ""),
