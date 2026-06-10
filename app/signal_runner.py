@@ -131,6 +131,14 @@ Extracted items:
     )
 
 
+def cap_merged_items(merged: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    max_items = max(1, get_int_env("FINN_SIGNAL_MAX_ITEMS_TO_SCORE", 120))
+    items = merged.get("items") or []
+    if len(items) <= max_items:
+        return merged, 0
+    return {**merged, "items": items[:max_items]}, len(items) - max_items
+
+
 def profile_output_dir(profile_id: str) -> Path:
     path = profile_paths(profile_id).root / "outputs"
     path.mkdir(parents=True, exist_ok=True)
@@ -217,7 +225,7 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
     digest_id = f"{profile_id}-{today}"
     created_at = now.isoformat(timespec="seconds")
     days = get_int_env("FINN_SIGNAL_DAYS", 2)
-    max_emails = get_int_env("FINN_SIGNAL_MAX_EMAILS", 30)
+    max_emails = get_int_env("FINN_SIGNAL_MAX_EMAILS", 15)
     source_count = len([source for source in read_sources(profile_id) if source.get("enabled", True)])
 
     emails = fetch_recent_newsletters(
@@ -263,6 +271,8 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
     extracted_batches, failures = extract_items_from_emails(emails)
 
     merged = merge_extracted_items(extracted_batches)
+    extracted_item_count = len(merged["items"])
+    merged, truncated_item_count = cap_merged_items(merged)
     base_preferences_text = paths.preferences.read_text(encoding="utf-8")
     learned_preferences_text = paths.learned_preferences.read_text(encoding="utf-8")
     base_preferences = load_yaml_file(str(paths.preferences))
@@ -310,6 +320,8 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
         "status": "sent",
         "email_count": len(emails),
         "item_count": len(merged["items"]),
+        "extracted_item_count": extracted_item_count,
+        "truncated_item_count": truncated_item_count,
         "failures": failures,
         "digest_id": digest_id,
         "send_result": send_result,
