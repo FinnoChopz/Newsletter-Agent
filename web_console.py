@@ -44,7 +44,16 @@ from app.profiles import (
     write_json,
 )
 from app.ranking import item_source
-from app.scheduler import install_launch_agent, launch_agent_path
+from app.scheduler import (
+    install_launch_agent,
+    launch_agent_status,
+    mark_hosted_scheduler_loop_failed,
+    mark_hosted_scheduler_loop_finished,
+    mark_hosted_scheduler_loop_started,
+    mark_hosted_scheduler_started,
+    read_scheduler_state,
+    scheduler_timezone_name,
+)
 from run_scheduled_profiles import main as run_scheduled_profiles
 from app.signal_runner import run_signal_for_profile
 from app.subscriptions import attempt_newsletter_subscription
@@ -106,6 +115,116 @@ def public_base_url(port: int) -> str:
     if configured:
         return configured
     return f"http://localhost:{port}"
+
+
+def hosted_scheduler_enabled() -> bool:
+    return bool_env("FINN_SIGNAL_ENABLE_HOSTED_SCHEDULER", False)
+
+
+def scheduler_state() -> dict[str, Any]:
+    if hosted_scheduler_enabled():
+        return {
+            **read_scheduler_state(),
+            "hosted": True,
+            "timezone": scheduler_timezone_name(),
+        }
+
+    return {
+        **launch_agent_status(PROJECT_ROOT),
+        "hosted": False,
+        "timezone": scheduler_timezone_name(),
+    }
+
+
+def parse_iso_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def seconds_since(value: str) -> float | None:
+    parsed = parse_iso_datetime(value)
+    if parsed is None:
+        return None
+    now = datetime.now(parsed.tzinfo) if parsed.tzinfo else datetime.now()
+    return max(0.0, (now - parsed).total_seconds())
+
+
+def hosted_scheduler_health() -> dict[str, Any]:
+    state = read_scheduler_state()
+    interval_seconds = max(60, int(os.getenv("FINN_SIGNAL_SCHEDULER_INTERVAL_SECONDS", "300")))
+    stale_after_seconds = max(
+        interval_seconds * 3,
+        int(os.getenv("FINN_SIGNAL_SCHEDULER_STALE_SECONDS", "1200")),
+    )
+    active_run_limit_seconds = int(os.getenv("FINN_SIGNAL_SCHEDULER_MAX_RUN_SECONDS", "3600"))
+    heartbeat_age = seconds_since(str(state.get("last_heartbeat_at") or ""))
+    active_age = seconds_since(str(state.get("active_run_started_at") or ""))
+    problems = []
+
+    if not state:
+        problems.append("Hosted scheduler has not written a heartbeat yet.")
+    elif state.get("active"):
+        if active_age is not None and active_age > active_run_limit_seconds:
+            problems.append("Hosted scheduler run has been active too long.")
+    elif heartbeat_age is None:
+        problems.append("Hosted scheduler heartbeat is missing.")
+    elif heartbeat_age > stale_after_seconds:
+        problems.append("Hosted scheduler heartbeat is stale.")
+
+    if state.get("status") == "error":
+        problems.append(str(state.get("last_error") or "Hosted scheduler reported an error."))
+
+    return {
+        "ok": not problems,
+        "hosted": True,
+        "timezone": scheduler_timezone_name(),
+        "interval_seconds": interval_seconds,
+        "stale_after_seconds": stale_after_seconds,
+        "heartbeat_age_seconds": heartbeat_age,
+        "active_run_age_seconds": active_age if state.get("active") else None,
+        "problems": problems,
+        "state": state,
+    }
+
+
+def health_payload() -> tuple[dict[str, Any], int]:
+    storage = storage_status()
+    scheduler = hosted_scheduler_health() if hosted_scheduler_enabled() else {"ok": True, "hosted": False}
+    problems = []
+    if not storage.get("writable"):
+        problems.append("Profile storage is not writable.")
+    if storage.get("render_runtime") and not storage.get("persistent"):
+        problems.append("Render persistent storage is not confirmed.")
+    problems.extend(scheduler.get("problems") or [])
+    payload = {
+        "ok": not problems,
+        "storage": storage,
+        "scheduler": scheduler,
+        "problems": problems,
+    }
+    return payload, 200 if payload["ok"] else 503
+
+
+def ensure_scheduler_for_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    schedule = profile.get("schedule") or {}
+    if hosted_scheduler_enabled() or not schedule.get("enabled", True):
+        return scheduler_state()
+
+    try:
+        return {
+            **install_launch_agent(PROJECT_ROOT),
+            "hosted": False,
+        }
+    except Exception as exc:
+        return {
+            **scheduler_state(),
+            "error": str(exc),
+            "status": "install_failed",
+        }
 
 
 def profile_id_from_digest_id(digest_id: str) -> str | None:
@@ -462,6 +581,27 @@ def profile_rankings(profile_id: str) -> dict[str, Any]:
     digest_path = output_dir / "finn_signal_latest.html"
 
     if not scored_path.exists():
+        state = profile.get("state") or {}
+        if state.get("last_run_status") == "sent_no_newsletters":
+            result = state.get("last_run_result") or {}
+            return {
+                "status": "no_newsletters",
+                "profile_id": profile_id,
+                "message": result.get(
+                    "message",
+                    "The latest run sent an empty digest because no approved newsletter emails were found.",
+                ),
+                "items": [],
+                "summary": {
+                    "digest_id": result.get("digest_id", ""),
+                    "created_at": state.get("last_sent_at", ""),
+                    "total_ranked": 0,
+                    "sent_in_digest": 0,
+                    "average_score": 0,
+                    "top_source": "None",
+                },
+                "learned_preferences": read_yaml(profile_paths(profile_id).learned_preferences, {}),
+            }
         return {
             "status": "empty",
             "profile_id": profile_id,
@@ -473,6 +613,21 @@ def profile_rankings(profile_id: str) -> dict[str, Any]:
 
     ranked = read_json(scored_path, {})
     manifest = read_json(manifest_path, {}) if manifest_path.exists() else {}
+    if ranked.get("status") == "no_newsletters":
+        return {
+            "status": "no_newsletters",
+            "profile_id": profile_id,
+            "message": ranked.get(
+                "message",
+                "The latest run sent an empty digest because no approved newsletter emails were found.",
+            ),
+            "summary": ranking_summary([], manifest),
+            "items": [],
+            "digest_sections": ranked.get("digest_sections") or {},
+            "learned_preferences": read_yaml(profile_paths(profile_id).learned_preferences, {}),
+            "review_url": "",
+            "digest_path": str(digest_path) if digest_path.exists() else "",
+        }
     items = [compact_ranked_item(item) for item in ranked.get("scored_items", [])]
     items.sort(
         key=lambda item: (
@@ -626,7 +781,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             if parsed.path == "/healthz":
-                self.send_json({"ok": True, "storage": storage_status()})
+                payload, status = health_payload()
+                self.send_json(payload, status=status)
                 return
 
             if parsed.path == "/api/state":
@@ -634,11 +790,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     {
                         "profiles": list_profiles(),
                         "storage": storage_status(),
-                        "scheduler": {
-                            "installed": launch_agent_path().exists(),
-                            "hosted": bool_env("FINN_SIGNAL_ENABLE_HOSTED_SCHEDULER", False),
-                            "path": str(launch_agent_path()),
-                        },
+                        "scheduler": scheduler_state(),
                     }
                 )
                 return
@@ -688,10 +840,11 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/scheduler/install":
-                if bool_env("FINN_SIGNAL_ENABLE_HOSTED_SCHEDULER", False):
+                if hosted_scheduler_enabled():
                     self.send_json(
                         {
                             "scheduler": {
+                                **scheduler_state(),
                                 "hosted": True,
                                 "message": "Hosted scheduler is enabled on Render. No local install is needed.",
                             }
@@ -869,7 +1022,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 frequency=str(body.get("frequency", "daily")),
                 enabled=bool(body.get("enabled", True)),
             )
-            self.send_json({"profile": profile})
+            self.send_json({"profile": profile, "scheduler": ensure_scheduler_for_profile(profile)})
             return
 
         if action == ["send-test"]:
@@ -1075,13 +1228,17 @@ def start_hosted_scheduler_if_enabled() -> None:
         return
 
     interval_seconds = max(60, int(os.getenv("FINN_SIGNAL_SCHEDULER_INTERVAL_SECONDS", "300")))
+    mark_hosted_scheduler_started(interval_seconds)
 
     def loop() -> None:
         print(f"Hosted scheduler enabled. Checking every {interval_seconds}s.")
         while True:
             try:
-                run_scheduled_profiles()
+                mark_hosted_scheduler_loop_started()
+                summary = run_scheduled_profiles()
+                mark_hosted_scheduler_loop_finished(summary)
             except Exception as error:
+                mark_hosted_scheduler_loop_failed(str(error))
                 print(f"Hosted scheduler error: {error}")
             time.sleep(interval_seconds)
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from html import escape
-from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +16,7 @@ from app.item_metadata import preserve_scored_item_metadata
 from app.manifests import save_manifest
 from app.profiles import load_profile, profile_paths, read_sources
 from app.ranking import build_digest_manifest, load_yaml_file, max_digest_items, rank_scored_items
+from app.scheduler import scheduler_now
 
 
 load_dotenv()
@@ -138,6 +138,35 @@ def write_profile_outputs(
     return {key: str(value) for key, value in paths.items()}
 
 
+def write_empty_profile_outputs(
+    profile_id: str,
+    digest_html: str,
+    manifest: dict[str, Any],
+    message: str,
+) -> dict[str, str]:
+    output_dir = profile_output_dir(profile_id)
+    ranked = {
+        "status": "no_newsletters",
+        "message": message,
+        "scored_items": [],
+        "digest_sections": {
+            "top_signals": [],
+            "strange_attractor": None,
+            "skipped_but_noted": [],
+        },
+    }
+    paths = {
+        "scored": output_dir / "latest_scored_items.json",
+        "digest": output_dir / "finn_signal_latest.html",
+        "manifest": output_dir / "latest_digest_manifest.json",
+    }
+    paths["scored"].write_text(json.dumps(ranked, indent=2), encoding="utf-8")
+    paths["digest"].write_text(digest_html, encoding="utf-8")
+    paths["manifest"].write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    save_manifest(manifest)
+    return {key: str(value) for key, value in paths.items()}
+
+
 def render_empty_digest(profile: dict[str, Any], days: int, source_count: int) -> str:
     user_name = escape(str(profile.get("display_name") or "there"))
     source_label = "source" if source_count == 1 else "sources"
@@ -162,8 +191,10 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
     if not paths.token.exists():
         raise RuntimeError("Connect Gmail before sending a digest.")
 
-    digest_id = f"{profile_id}-{date.today().isoformat()}"
-    created_at = datetime.now().isoformat(timespec="seconds")
+    now = scheduler_now()
+    today = now.date().isoformat()
+    digest_id = f"{profile_id}-{today}"
+    created_at = now.isoformat(timespec="seconds")
     days = get_int_env("FINN_SIGNAL_DAYS", 2)
     max_emails = get_int_env("FINN_SIGNAL_MAX_EMAILS", 30)
     source_count = len([source for source in read_sources(profile_id) if source.get("enabled", True)])
@@ -176,17 +207,36 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
     )
 
     if not emails:
-        send_email(
+        digest_html = render_empty_digest(profile, days=days, source_count=source_count)
+        manifest = {
+            "digest_id": digest_id,
+            "created_at": created_at,
+            "digest_version": "v3",
+            "user_name": str(profile.get("display_name") or "you"),
+            "items": [],
+            "status": "no_newsletters",
+        }
+        message = "No approved newsletter emails were found in the current lookback window."
+        output_paths = write_empty_profile_outputs(
+            profile_id=profile_id,
+            digest_html=digest_html,
+            manifest=manifest,
+            message=message,
+        )
+        send_result = send_email(
             to=profile["email"],
-            subject=f"Finn-Signal - {date.today().isoformat()}",
-            body=render_empty_digest(profile, days=days, source_count=source_count),
+            subject=f"Finn-Signal - {today}",
+            body=digest_html,
             html=True,
             token_path=str(paths.token),
         )
         return {
             "profile_id": profile_id,
             "status": "sent_no_newsletters",
-            "message": "No approved newsletter emails were found in the current lookback window.",
+            "message": message,
+            "digest_id": digest_id,
+            "send_result": send_result,
+            "outputs": output_paths,
         }
 
     extracted_batches = []
@@ -232,9 +282,9 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
         manifest=manifest,
     )
 
-    send_email(
+    send_result = send_email(
         to=profile["email"],
-        subject=f"Finn-Signal - {date.today().isoformat()}",
+        subject=f"Finn-Signal - {today}",
         body=digest_html,
         html=True,
         token_path=str(paths.token),
@@ -246,5 +296,7 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
         "email_count": len(emails),
         "item_count": len(merged["items"]),
         "failures": failures,
+        "digest_id": digest_id,
+        "send_result": send_result,
         "outputs": output_paths,
     }

@@ -114,9 +114,10 @@ function renderStatus() {
   const profile = activeProfile();
   const schedule = profile?.schedule || {};
   const profileState = profile?.state || {};
-  const schedulerLabel = state.scheduler.hosted ? "Hosted" : state.scheduler.installed ? "Installed" : "Not installed";
+  const schedulerLabel = schedulerStatusLabel();
   const lastSent = profileState.last_sent_at || "Never";
   const lastChecked = profileState.last_scheduler_check_at || "Never";
+  const lastResult = profileState.last_run_status || profileState.last_scheduler_decision || "None";
   const receivingCount = profile?.source_count || 0;
   const pendingCount = profile?.pending_source_count || 0;
   $("#statusStrip").innerHTML = `
@@ -127,6 +128,7 @@ function renderStatus() {
     <div class="metric"><span>Runner</span><strong>${schedulerLabel}</strong></div>
     <div class="metric"><span>Last sent</span><strong>${escapeHtml(lastSent)}</strong></div>
     <div class="metric"><span>Last checked</span><strong>${escapeHtml(lastChecked)}</strong></div>
+    <div class="metric"><span>Last result</span><strong>${escapeHtml(lastResult)}</strong></div>
   `;
   if (profileState.last_error) {
     $("#statusStrip").insertAdjacentHTML(
@@ -136,6 +138,10 @@ function renderStatus() {
   }
 
   $("#schedulerPill").textContent = schedulerLabel;
+  const schedulerDetails = $("#schedulerDetails");
+  if (schedulerDetails) {
+    schedulerDetails.textContent = schedulerStatusDetail();
+  }
   $("#sourceCount").textContent = pendingCount ? `${receivingCount} live / ${pendingCount} pending` : String(receivingCount);
   if (state.scheduler.hosted) {
     $("#scheduleResult").textContent = "";
@@ -147,6 +153,27 @@ function renderStatus() {
     form.elements.frequency.value = schedule.frequency || "daily";
     form.elements.enabled.checked = schedule.enabled !== false;
   }
+}
+
+function schedulerStatusLabel() {
+  if (state.scheduler.hosted) return "Hosted";
+  if (state.scheduler.loaded) return "Running";
+  if (state.scheduler.installed) return "Installed";
+  return "Not installed";
+}
+
+function schedulerStatusDetail() {
+  if (state.scheduler.hosted) {
+    if (state.scheduler.active) return `Hosted scheduler is running now (${state.scheduler.timezone || "configured time"}).`;
+    if (state.scheduler.last_error) return state.scheduler.last_error;
+    if (state.scheduler.last_finished_at) return `Last hosted check finished at ${state.scheduler.last_finished_at}.`;
+    if (state.scheduler.started_at) return `Hosted scheduler started at ${state.scheduler.started_at}.`;
+    return "Hosted scheduler is enabled; waiting for its first heartbeat.";
+  }
+  if (state.scheduler.error) return state.scheduler.error;
+  if (state.scheduler.loaded) return "Local background sender is running.";
+  if (state.scheduler.installed) return "Local sender is installed but macOS has not loaded it.";
+  return "Local background sender is not installed.";
 }
 
 function renderStorage() {
@@ -339,6 +366,17 @@ function renderRankingSummary(rankings) {
     reviewLink.hidden = true;
   }
 
+  if (rankings?.status === "no_newsletters") {
+    $("#rankingSummary").innerHTML = `
+      <article class="metric wide"><span>Status</span><strong>No new signal</strong></article>
+      <article class="metric wide"><span>Digest</span><strong>${escapeHtml(summary.digest_id || "Empty digest")}</strong></article>
+      <article class="metric wide"><span>Profile</span><strong>Checked</strong></article>
+    `;
+    $("#rankingHint").textContent = rankings?.message || "The latest run sent an empty digest because no approved newsletter emails were found.";
+    $("#rankingCount").textContent = "0";
+    return;
+  }
+
   if (rankings?.status !== "ready") {
     $("#rankingSummary").innerHTML = `
       <article class="metric wide"><span>Status</span><strong>No rankings yet</strong></article>
@@ -408,6 +446,16 @@ function renderRankings(rankings) {
   state.rankings = rankings;
   renderRankingSummary(rankings);
   renderLearningProfile(rankings);
+
+  if (rankings?.status === "no_newsletters") {
+    $("#rankingList").innerHTML = `
+      <div class="empty-state">
+        <h3>No new signal in the latest run.</h3>
+        <p>${escapeHtml(rankings?.message || "Finn-Signal checked the approved sources and did not find matching newsletter emails.")}</p>
+      </div>
+    `;
+    return;
+  }
 
   if (rankings?.status !== "ready") {
     $("#rankingList").innerHTML = `
@@ -884,8 +932,11 @@ function wireForms() {
         }),
       });
       state.profiles = state.profiles.map((item) => (item.id === data.profile.id ? data.profile : item));
+      state.scheduler = data.scheduler || state.scheduler;
       renderStatus();
-      showResult("#scheduleResult", "Schedule saved.");
+      const label = schedulerStatusLabel();
+      const detail = schedulerStatusDetail();
+      showResult("#scheduleResult", `Schedule saved. Runner: ${label}. ${detail}`);
     } catch (error) {
       showResult("#scheduleResult", error.message);
     } finally {

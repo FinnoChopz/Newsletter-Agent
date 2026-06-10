@@ -63,6 +63,7 @@ The blueprint already sets:
 FINN_SIGNAL_CONSOLE_HOST=0.0.0.0
 FINN_SIGNAL_USERS_DIR=/var/data/users
 FINN_SIGNAL_ENABLE_HOSTED_SCHEDULER=true
+FINN_SIGNAL_TIMEZONE=America/New_York
 ```
 
 ## 5. Add the Google callback URL
@@ -95,3 +96,13 @@ Then:
 6. Send a test digest.
 
 Render now does the daily work. Your laptop can be off.
+
+## Scheduler health
+
+Open this URL to confirm the hosted sender is alive:
+
+```text
+https://your-render-url.onrender.com/healthz
+```
+
+The response should include `"ok": true`, persistent storage details, and a scheduler heartbeat. If the hosted scheduler is enabled but stale or failing, `/healthz` returns an unhealthy status so Render can restart the service and the response explains the failure.

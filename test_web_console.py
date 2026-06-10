@@ -8,9 +8,12 @@ from app.profiles import create_profile
 from web_console import (
     build_oauth_flow,
     console_host,
+    ensure_scheduler_for_profile,
+    health_payload,
     parse_site_guide_output,
     profile_rankings,
     render_feedback_app,
+    scheduler_state,
     source_confirmation_query,
 )
 
@@ -126,6 +129,8 @@ class WebConsoleTests(unittest.TestCase):
         self.assertIn("Save all recommendations as pending", html)
         self.assertIn("single daily digest", html)
         self.assertIn("Sends exactly one digest now", html)
+        self.assertIn('id="schedulerDetails"', html)
+        self.assertIn("Hosted scheduler is enabled", app_js)
         self.assertIn("Try subscribe", app_js)
         self.assertIn("Save for later", app_js)
         self.assertIn("Open subscribe page", app_js)
@@ -145,6 +150,73 @@ class WebConsoleTests(unittest.TestCase):
         self.assertIn("to:amelia+finnsignal@gmail.com", query)
         self.assertIn("deliveredto:amelia+finnsignal@gmail.com", query)
         self.assertIn("from:news@example.com", query)
+
+    def test_scheduler_state_includes_hosted_flag(self):
+        with patch("web_console.read_scheduler_state", return_value={"status": "idle"}), patch(
+            "web_console.bool_env",
+            return_value=True,
+        ):
+            state = scheduler_state()
+
+        self.assertTrue(state["hosted"])
+        self.assertEqual(state["status"], "idle")
+
+    def test_local_enabled_schedule_installs_runner(self):
+        profile = {"schedule": {"enabled": True}}
+
+        with patch("web_console.bool_env", return_value=False), patch(
+            "web_console.install_launch_agent",
+            return_value={"installed": True, "loaded": True, "status": "installed"},
+        ) as install:
+            state = ensure_scheduler_for_profile(profile)
+
+        self.assertTrue(install.called)
+        self.assertTrue(state["installed"])
+        self.assertFalse(state["hosted"])
+
+    def test_hosted_schedule_does_not_install_local_runner(self):
+        profile = {"schedule": {"enabled": True}}
+
+        with patch("web_console.bool_env", return_value=True), patch(
+            "web_console.install_launch_agent",
+        ) as install, patch(
+            "web_console.launch_agent_status",
+            return_value={"installed": False, "loaded": False},
+        ):
+            state = ensure_scheduler_for_profile(profile)
+
+        self.assertFalse(install.called)
+        self.assertTrue(state["hosted"])
+
+    def test_health_fails_when_hosted_scheduler_has_no_heartbeat(self):
+        with patch("web_console.storage_status", return_value={"writable": True, "render_runtime": True, "persistent": True}), patch(
+            "web_console.bool_env",
+            return_value=True,
+        ), patch(
+            "web_console.read_scheduler_state",
+            return_value={},
+        ):
+            payload, status = health_payload()
+
+        self.assertEqual(status, 503)
+        self.assertFalse(payload["ok"])
+        self.assertIn("heartbeat", payload["problems"][0])
+
+    def test_health_passes_with_recent_hosted_heartbeat(self):
+        with patch("web_console.storage_status", return_value={"writable": True, "render_runtime": True, "persistent": True}), patch(
+            "web_console.bool_env",
+            return_value=True,
+        ), patch(
+            "web_console.read_scheduler_state",
+            return_value={"status": "idle", "last_heartbeat_at": "2026-06-10T12:00:00"},
+        ), patch(
+            "web_console.seconds_since",
+            return_value=60,
+        ):
+            payload, status = health_payload()
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
 
 
 if __name__ == "__main__":
