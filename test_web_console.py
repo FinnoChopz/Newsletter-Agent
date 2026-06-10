@@ -214,6 +214,8 @@ class WebConsoleTests(unittest.TestCase):
         self.assertIn("Check Gmail", app_js)
         self.assertIn("Mark receiving", app_js)
         self.assertIn("Manual signup needed", app_js)
+        self.assertIn("Bot: browser", app_js)
+        self.assertIn("Bot: static form", app_js)
         self.assertIn('data-source-filter="${value}"', app_js)
         self.assertIn("Pending subscription", app_js)
         self.assertIn("No inactive sources.", app_js)

@@ -16,7 +16,7 @@ window.finnSignalState = state;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const ACTIVE_PROFILE_STORAGE_KEY = "finnSignalActiveProfileId";
-const PENDING_SOURCE_STATUSES = ["needs_subscription", "pending_subscription", "pending_confirmation", "manual_required"];
+const PENDING_SOURCE_STATUSES = ["needs_subscription", "pending_subscription", "pending_confirmation", "manual_required", "failed_signup"];
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -314,6 +314,11 @@ function renderSources(sources) {
         failed_signup: "Signup failed",
       };
       const status = source.enabled === false ? "Tracking off" : statusLabels[source.status] || "Receiving";
+      const botMethodLabels = {
+        http_form: "Bot: static form",
+        browser_agent: "Bot: browser",
+      };
+      const botMethod = botMethodLabels[source.subscription_result?.method] || "";
       const link = source.subscription_url
         ? `<a href="${escapeAttr(source.subscription_url)}" data-source-status="${escapeAttr(sender)}" data-status="pending_subscription" target="_blank" rel="noreferrer">Open subscribe page</a>`
         : "";
@@ -340,6 +345,7 @@ function renderSources(sources) {
           <div class="meta">
             <span>${status}</span>
             <span>${escapeHtml(source.source_type || "manual")}</span>
+            ${botMethod ? `<span>${escapeHtml(botMethod)}</span>` : ""}
             ${subscriptionEmail ? `<span>Subscribe with ${escapeHtml(subscriptionEmail)}</span>` : ""}
             ${link ? `<span>${link}</span>` : ""}
           </div>
