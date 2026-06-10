@@ -359,6 +359,26 @@ h2 {
   color: var(--ink);
 }
 
+.source-filter {
+  flex-wrap: wrap;
+}
+
+.source-filter .segment {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.source-filter .segment span {
+  background: rgba(16, 35, 28, 0.1);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+  min-width: 22px;
+  padding: 3px 7px;
+}
+
 .ranking-hint {
   color: var(--muted);
   font-size: 15px;

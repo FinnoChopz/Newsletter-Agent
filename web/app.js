@@ -2,9 +2,11 @@ const state = {
   profiles: [],
   activeProfileId: "",
   candidates: [],
+  sources: [],
   recommendations: [],
   rankings: null,
   rankingFilter: "all",
+  sourceFilter: "active",
   scheduler: { installed: false, path: "" },
   storage: null,
 };
@@ -14,6 +16,7 @@ window.finnSignalState = state;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const ACTIVE_PROFILE_STORAGE_KEY = "finnSignalActiveProfileId";
+const PENDING_SOURCE_STATUSES = ["needs_subscription", "pending_subscription", "pending_confirmation", "manual_required"];
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -245,17 +248,62 @@ function renderCandidates(candidates) {
     .join("");
 }
 
+function sourceBucket(source) {
+  if (source.enabled === false) return "inactive";
+  if (PENDING_SOURCE_STATUSES.includes(source.status)) return "pending";
+  return "active";
+}
+
+function renderSourceFilter(sources) {
+  const container = $("#sourceFilter");
+  const countFor = (bucket) => sources.filter((source) => sourceBucket(source) === bucket).length;
+  const options = [
+    ["active", "Active", countFor("active")],
+    ["pending", "Pending subscription", countFor("pending")],
+    ["inactive", "Inactive", countFor("inactive")],
+  ];
+
+  container.innerHTML = options
+    .map(([value, label, count]) => `
+      <button type="button" class="segment ${state.sourceFilter === value ? "is-active" : ""}" data-source-filter="${value}">
+        ${escapeHtml(label)} <span>${count}</span>
+      </button>
+    `)
+    .join("");
+}
+
 function renderSources(sources) {
   const list = $("#sourceList");
+  state.sources = sources;
+  renderSourceFilter(sources);
   if (!sources.length) {
+    $("#sourceCount").textContent = "0";
     list.innerHTML = '<p class="quiet">No tracked sources yet.</p>';
     return;
   }
 
-  list.innerHTML = sources
+  const filteredSources = sources.filter((source) => sourceBucket(source) === state.sourceFilter);
+  const sourceFilterLabels = {
+    active: "active",
+    pending: "pending",
+    inactive: "inactive",
+  };
+  $("#sourceCount").textContent = `${filteredSources.length} ${sourceFilterLabels[state.sourceFilter] || "shown"}`;
+
+  if (!filteredSources.length) {
+    const emptyMessages = {
+      active: "No active receiving sources.",
+      pending: "No pending subscription sources.",
+      inactive: "No inactive sources.",
+    };
+    list.innerHTML = `<p class="quiet">${emptyMessages[state.sourceFilter] || "No sources in this view."}</p>`;
+    return;
+  }
+
+  list.innerHTML = filteredSources
     .map((source) => {
       const sender = (source.senders || [])[0] || "";
-      const pending = ["needs_subscription", "pending_subscription", "pending_confirmation", "manual_required"].includes(source.status);
+      const pending = PENDING_SOURCE_STATUSES.includes(source.status);
       const statusClass = source.enabled === false ? "bad" : pending ? "warn" : "good";
       const statusLabels = {
         receiving: "Receiving",
@@ -866,6 +914,13 @@ function wireForms() {
     } finally {
       done();
     }
+  });
+
+  $("#sourceFilter").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-source-filter]");
+    if (!button) return;
+    state.sourceFilter = button.dataset.sourceFilter;
+    renderSources(state.sources);
   });
 
   $("#sourceList").addEventListener("click", async (event) => {
