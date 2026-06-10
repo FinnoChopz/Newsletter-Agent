@@ -598,7 +598,7 @@ def to_float(value: Any, default: float = 0.0) -> float:
 
 
 def profile_output_dir(profile_id: str) -> Path:
-    return PROJECT_ROOT / "outputs" / "users" / profile_id
+    return profile_paths(profile_id).root / "outputs"
 
 
 def compact_ranked_item(item: dict[str, Any]) -> dict[str, Any]:

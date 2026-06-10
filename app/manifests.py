@@ -3,6 +3,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from app.profiles import profile_paths
+
 
 LATEST_MANIFEST_PATH = Path("outputs/latest_digest_manifest.json")
 MANIFEST_DIR = Path("outputs/manifests")
@@ -16,6 +18,20 @@ def manifest_path_for_digest_id(digest_id: str) -> Path:
     return MANIFEST_DIR / f"{safe_manifest_name(digest_id)}.json"
 
 
+def profile_id_from_digest_id(digest_id: str) -> str | None:
+    parts = digest_id.rsplit("-", 3)
+    if len(parts) == 4 and all(part.isdigit() for part in parts[-3:]):
+        return parts[0]
+    return None
+
+
+def profile_manifest_path_for_digest_id(digest_id: str) -> Path | None:
+    profile_id = profile_id_from_digest_id(digest_id)
+    if not profile_id:
+        return None
+    return profile_paths(profile_id).root / "outputs" / "manifests" / f"{safe_manifest_name(digest_id)}.json"
+
+
 def save_manifest(manifest: dict[str, Any]) -> Path:
     digest_id = str(manifest["digest_id"])
     MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
@@ -24,14 +40,22 @@ def save_manifest(manifest: dict[str, Any]) -> Path:
     path.write_text(text, encoding="utf-8")
     LATEST_MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
     LATEST_MANIFEST_PATH.write_text(text, encoding="utf-8")
+    profile_path = profile_manifest_path_for_digest_id(digest_id)
+    if profile_path is not None:
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        profile_path.write_text(text, encoding="utf-8")
     return path
 
 
 def load_manifest(digest_id: str | None = None) -> dict[str, Any]:
     if digest_id:
-        path = manifest_path_for_digest_id(digest_id)
-        if path.exists():
-            return json.loads(path.read_text(encoding="utf-8"))
+        paths = [manifest_path_for_digest_id(digest_id)]
+        profile_path = profile_manifest_path_for_digest_id(digest_id)
+        if profile_path is not None:
+            paths.insert(0, profile_path)
+        for path in paths:
+            if path.exists():
+                return json.loads(path.read_text(encoding="utf-8"))
 
     if LATEST_MANIFEST_PATH.exists():
         return json.loads(LATEST_MANIFEST_PATH.read_text(encoding="utf-8"))

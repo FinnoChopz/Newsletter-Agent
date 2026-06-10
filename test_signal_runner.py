@@ -4,11 +4,35 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.manifests import load_manifest, save_manifest
 from app.profiles import create_profile, profile_paths, upsert_source
 from app.signal_runner import run_signal_for_profile
 
 
 class SignalRunnerTests(unittest.TestCase):
+    def test_profile_manifest_loads_from_persistent_profile_outputs(self):
+        previous = os.environ.get("FINN_SIGNAL_USERS_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = tmpdir
+                profile = create_profile("Finn", "finn@example.com")
+                digest_id = f"{profile['id']}-2026-06-10"
+                with patch("app.manifests.MANIFEST_DIR", Path(tmpdir) / "ephemeral" / "manifests"), patch(
+                    "app.manifests.LATEST_MANIFEST_PATH",
+                    Path(tmpdir) / "ephemeral" / "latest.json",
+                ):
+                    save_manifest({"digest_id": digest_id, "items": []})
+                    for path in (Path(tmpdir) / "ephemeral").glob("**/*.json"):
+                        path.unlink()
+                    loaded = load_manifest(digest_id)
+        finally:
+            if previous is None:
+                os.environ.pop("FINN_SIGNAL_USERS_DIR", None)
+            else:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = previous
+
+        self.assertEqual(loaded["digest_id"], digest_id)
+
     def test_empty_newsletter_run_writes_outputs_and_send_result(self):
         previous = os.environ.get("FINN_SIGNAL_USERS_DIR")
         try:

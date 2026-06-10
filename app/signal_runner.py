@@ -132,7 +132,7 @@ Extracted items:
 
 
 def profile_output_dir(profile_id: str) -> Path:
-    path = Path("outputs/users") / profile_id
+    path = profile_paths(profile_id).root / "outputs"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
