@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -93,6 +94,9 @@ class WebConsoleTests(unittest.TestCase):
         self.assertIn("Ask about articles", html)
         self.assertIn("https://example.com/article", html)
         self.assertIn('value="5" selected', html)
+        self.assertIn("renderAssistantAnswer", html)
+        self.assertIn(".answer p", html)
+        self.assertNotIn("white-space:pre-wrap", html)
 
     def test_site_guide_output_filters_highlight_targets(self):
         parsed = parse_site_guide_output(
@@ -117,6 +121,74 @@ class WebConsoleTests(unittest.TestCase):
 
         self.assertEqual(rankings["status"], "empty")
         self.assertEqual(rankings["items"], [])
+        self.assertEqual(rankings["feedback"]["ratings"], {})
+
+    def test_profile_rankings_includes_saved_user_feedback(self):
+        previous = os.environ.get("FINN_SIGNAL_USERS_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = tmpdir
+                profile = create_profile("Demo", f"reader-{os.getpid()}@example.com")
+                paths = profile_paths(profile["id"])
+                output_dir = paths.root / "outputs"
+                output_dir.mkdir(parents=True, exist_ok=True)
+                digest_id = f"{profile['id']}-2026-06-10"
+
+                (output_dir / "latest_digest_manifest.json").write_text(
+                    json.dumps(
+                        {
+                            "digest_id": digest_id,
+                            "created_at": "2026-06-10T12:00:00",
+                            "items": [{"item_number": 1, "title": "Article One", "source": "Demo"}],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (output_dir / "latest_scored_items.json").write_text(
+                    json.dumps(
+                        {
+                            "scored_items": [
+                                {
+                                    "rank": 1,
+                                    "item_number": 1,
+                                    "title": "Article One",
+                                    "source": "Demo",
+                                    "summary": "A useful article.",
+                                    "include_in_digest": True,
+                                    "scores": {"final_score": 8.4},
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (paths.root / "feedback_log.jsonl").write_text(
+                    json.dumps(
+                        {
+                            "created_at": "2026-06-10T12:30:00",
+                            "digest_id": digest_id,
+                            "raw_feedback": "1:5\nMore AI infrastructure, less market noise.",
+                            "parsed_feedback": {
+                                "item_ratings": [{"item_number": 1, "rating": 5, "reason": "Useful"}],
+                                "style_notes": ["More AI infrastructure, less market noise."],
+                            },
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+                rankings = profile_rankings(profile["id"])
+        finally:
+            if previous is None:
+                os.environ.pop("FINN_SIGNAL_USERS_DIR", None)
+            else:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = previous
+
+        self.assertEqual(rankings["status"], "ready")
+        self.assertEqual(rankings["items"][0]["user_feedback"]["rating"], 5)
+        self.assertEqual(rankings["feedback"]["ratings"]["1"]["title"], "Article One")
+        self.assertIn("More AI infrastructure", rankings["feedback"]["notes"][0]["text"])
 
     def test_console_shell_exposes_rankings_and_guide(self):
         html = Path("web/index.html").read_text(encoding="utf-8")
@@ -141,6 +213,9 @@ class WebConsoleTests(unittest.TestCase):
         self.assertIn("Check Gmail", app_js)
         self.assertIn("Mark receiving", app_js)
         self.assertIn("Manual signup needed", app_js)
+        self.assertIn("Your article ratings", app_js)
+        self.assertIn("Your notes", app_js)
+        self.assertIn("Your rating", app_js)
 
     def test_source_confirmation_query_uses_subscription_alias_and_sender(self):
         query = source_confirmation_query(

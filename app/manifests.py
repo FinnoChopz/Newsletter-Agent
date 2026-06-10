@@ -32,6 +32,17 @@ def profile_manifest_path_for_digest_id(digest_id: str) -> Path | None:
     return profile_paths(profile_id).root / "outputs" / "manifests" / f"{safe_manifest_name(digest_id)}.json"
 
 
+def profile_manifest_candidate_paths(digest_id: str) -> list[Path]:
+    profile_id = profile_id_from_digest_id(digest_id)
+    if not profile_id:
+        return []
+    output_dir = profile_paths(profile_id).root / "outputs"
+    return [
+        output_dir / "manifests" / f"{safe_manifest_name(digest_id)}.json",
+        output_dir / "latest_digest_manifest.json",
+    ]
+
+
 def save_manifest(manifest: dict[str, Any]) -> Path:
     digest_id = str(manifest["digest_id"])
     MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
@@ -49,13 +60,17 @@ def save_manifest(manifest: dict[str, Any]) -> Path:
 
 def load_manifest(digest_id: str | None = None) -> dict[str, Any]:
     if digest_id:
-        paths = [manifest_path_for_digest_id(digest_id)]
-        profile_path = profile_manifest_path_for_digest_id(digest_id)
-        if profile_path is not None:
-            paths.insert(0, profile_path)
+        paths = [
+            *profile_manifest_candidate_paths(digest_id),
+            manifest_path_for_digest_id(digest_id),
+            LATEST_MANIFEST_PATH,
+        ]
         for path in paths:
             if path.exists():
-                return json.loads(path.read_text(encoding="utf-8"))
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+                if str(manifest.get("digest_id") or "") == digest_id:
+                    return manifest
+        raise FileNotFoundError(f"No digest manifest found for {digest_id}.")
 
     if LATEST_MANIFEST_PATH.exists():
         return json.loads(LATEST_MANIFEST_PATH.read_text(encoding="utf-8"))

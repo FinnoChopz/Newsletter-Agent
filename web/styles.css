@@ -451,12 +451,17 @@ h2 {
   line-height: 1.45;
 }
 
+.ranking-score-stack {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 8px;
+  min-width: 92px;
+}
+
 .final-score {
   background: #10231c;
   border-radius: 8px;
   color: #ffffff;
-  flex: 0 0 auto;
-  min-width: 92px;
   padding: 12px;
   text-align: center;
 }
@@ -470,6 +475,30 @@ h2 {
   font-size: 30px;
   line-height: 1;
   margin-top: 3px;
+}
+
+.user-rating {
+  background: #edf5ff;
+  border: 1px solid #b8d7f3;
+  border-radius: 8px;
+  color: #183a59;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.user-rating span {
+  color: #4b7093;
+  display: block;
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.user-rating strong {
+  display: block;
+  font-size: 20px;
+  line-height: 1;
+  margin-top: 4px;
 }
 
 .score-grid {
@@ -584,6 +613,56 @@ h2 {
 .learning-row strong {
   color: var(--ink);
   font-size: 15px;
+}
+
+.feedback-rating-row {
+  align-items: start;
+  background: #fbfcf8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 11px;
+}
+
+.feedback-rating-row span,
+.feedback-note-row span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.feedback-rating-row p,
+.feedback-note-row p {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.35;
+  margin: 3px 0 0;
+}
+
+.feedback-rating-row small {
+  color: var(--muted);
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
+  margin-top: 5px;
+}
+
+.feedback-rating-row strong {
+  color: #183a59;
+  flex: 0 0 auto;
+  font-size: 18px;
+}
+
+.feedback-note-row {
+  background: #fbfcf8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 11px;
 }
 
 .learning-note {

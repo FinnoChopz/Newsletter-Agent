@@ -355,6 +355,18 @@ function scorePill(label, value) {
   `;
 }
 
+function shortDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function renderRankingSummary(rankings) {
   const summary = rankings?.summary || {};
   const reviewLink = $("#reviewLatestDigest");
@@ -412,6 +424,11 @@ function filteredRankingItems() {
 
 function renderLearningProfile(rankings) {
   const learned = rankings?.learned_preferences || {};
+  const feedback = rankings?.feedback || {};
+  const ratingRows = Object.values(feedback.ratings || {}).sort(
+    (a, b) => Number(a.item_number || 0) - Number(b.item_number || 0)
+  );
+  const noteRows = feedback.notes || [];
   const topics = Object.entries(learned.topic_weights || {})
     .sort((a, b) => Math.abs(Number(b[1] || 0)) - Math.abs(Number(a[1] || 0)))
     .slice(0, 8);
@@ -435,10 +452,48 @@ function renderLearningProfile(rankings) {
     </div>
   `;
 
+  const ratingGroup = `
+    <div class="learning-group">
+      <h3>Your article ratings</h3>
+      ${
+        ratingRows.length
+          ? ratingRows.map((row) => `
+              <div class="feedback-rating-row">
+                <div>
+                  <span>#${escapeHtml(row.item_number || "?")}</span>
+                  <p>${escapeHtml(row.title || "Untitled")}</p>
+                  ${row.reason ? `<small>${escapeHtml(row.reason)}</small>` : ""}
+                </div>
+                <strong>${escapeHtml(row.rating || "?")}/5</strong>
+              </div>
+            `).join("")
+          : '<p class="quiet">No saved ratings for this digest yet.</p>'
+      }
+    </div>
+  `;
+
+  const notesGroup = `
+    <div class="learning-group">
+      <h3>Your notes</h3>
+      ${
+        noteRows.length
+          ? noteRows.map((note) => `
+              <div class="feedback-note-row">
+                ${note.created_at ? `<span>${escapeHtml(shortDate(note.created_at))}</span>` : ""}
+                <p>${escapeHtml(note.text || "")}</p>
+              </div>
+            `).join("")
+          : '<p class="quiet">No natural language note saved for this digest yet.</p>'
+      }
+    </div>
+  `;
+
   $("#learningList").innerHTML = `
+    ${ratingGroup}
+    ${notesGroup}
     ${group("Topic weights", topics)}
     ${group("Source weights", sources)}
-    <div class="learning-note">Use the feedback page from a digest email to move these weights over time.</div>
+    <div class="learning-note">Feedback shown here is from the latest digest.</div>
   `;
 }
 
@@ -482,6 +537,7 @@ function renderRankings(rankings) {
       const status = item.include_in_digest ? "Sent in digest" : "Held back";
       const statusClass = item.include_in_digest ? "good" : "warn";
       const rankLabel = item.item_number ? `#${item.item_number} in email` : `Rank ${item.rank || "?"}`;
+      const userFeedback = item.user_feedback;
       const link = item.url
         ? `<a href="${escapeAttr(item.url)}" target="_blank" rel="noreferrer">Read full article</a>`
         : '<span>No source link captured</span>';
@@ -502,9 +558,19 @@ function renderRankings(rankings) {
                 </div>
                 <h3>${escapeHtml(item.title)}</h3>
               </div>
-              <div class="final-score">
-                <span>Score</span>
-                <strong>${finalScore.toFixed(1)}</strong>
+              <div class="ranking-score-stack">
+                <div class="final-score">
+                  <span>Score</span>
+                  <strong>${finalScore.toFixed(1)}</strong>
+                </div>
+                ${
+                  userFeedback
+                    ? `<div class="user-rating">
+                        <span>Your rating</span>
+                        <strong>${escapeHtml(userFeedback.rating || "?")}/5</strong>
+                      </div>`
+                    : ""
+                }
               </div>
             </div>
             <p>${escapeHtml(item.summary || "")}</p>

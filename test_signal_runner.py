@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -25,6 +26,41 @@ class SignalRunnerTests(unittest.TestCase):
                     for path in (Path(tmpdir) / "ephemeral").glob("**/*.json"):
                         path.unlink()
                     loaded = load_manifest(digest_id)
+        finally:
+            if previous is None:
+                os.environ.pop("FINN_SIGNAL_USERS_DIR", None)
+            else:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = previous
+
+        self.assertEqual(loaded["digest_id"], digest_id)
+
+    def test_profile_latest_manifest_loads_only_when_digest_id_matches(self):
+        previous = os.environ.get("FINN_SIGNAL_USERS_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = tmpdir
+                profile = create_profile("Finn", "finn@example.com")
+                digest_id = f"{profile['id']}-2026-06-10"
+                paths = profile_paths(profile["id"])
+                output_dir = paths.root / "outputs"
+                output_dir.mkdir(parents=True, exist_ok=True)
+                (output_dir / "latest_digest_manifest.json").write_text(
+                    json.dumps({"digest_id": digest_id, "items": [{"item_number": 1}]}),
+                    encoding="utf-8",
+                )
+                global_latest = Path(tmpdir) / "stale_global_latest.json"
+                global_latest.write_text(
+                    json.dumps({"digest_id": "other-profile-2026-06-10", "items": []}),
+                    encoding="utf-8",
+                )
+
+                with patch("app.manifests.MANIFEST_DIR", Path(tmpdir) / "empty"), patch(
+                    "app.manifests.LATEST_MANIFEST_PATH",
+                    global_latest,
+                ):
+                    loaded = load_manifest(digest_id)
+                    with self.assertRaises(FileNotFoundError):
+                        load_manifest(f"{profile['id']}-2026-06-11")
         finally:
             if previous is None:
                 os.environ.pop("FINN_SIGNAL_USERS_DIR", None)

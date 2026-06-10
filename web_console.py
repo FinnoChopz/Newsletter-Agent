@@ -17,7 +17,7 @@ from google_auth_oauthlib.flow import Flow
 from openai import OpenAI
 
 from app.config import get_cheap_model
-from app.feedback import apply_parsed_feedback
+from app.feedback import apply_parsed_feedback, strip_rating_text
 from app.gmail_reader import (
     SCOPES,
     classify_sender_with_model,
@@ -324,6 +324,77 @@ def feedback_paths_for_digest(digest_id: str) -> tuple[Path, Path]:
     return Path("data/learned_preferences.yaml"), Path("data/feedback_log.jsonl")
 
 
+def read_feedback_events(profile_id: str) -> list[dict[str, Any]]:
+    path = profile_paths(profile_id).root / "feedback_log.jsonl"
+    events = []
+    if not path.exists():
+        return events
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return events
+
+
+def natural_feedback_note(event: dict[str, Any]) -> str:
+    parsed = event.get("parsed_feedback") or {}
+    notes = [str(note).strip() for note in parsed.get("style_notes") or [] if str(note).strip()]
+    if notes:
+        return "\n".join(notes)
+
+    raw_note = strip_rating_text(str(event.get("raw_feedback") or "")).strip()
+    return raw_note
+
+
+def feedback_summary_for_digest(profile_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
+    digest_id = str(manifest.get("digest_id") or "")
+    item_titles = {}
+    for item in manifest.get("items", []):
+        try:
+            item_titles[int(item.get("item_number"))] = str(item.get("title") or "Untitled")
+        except (TypeError, ValueError):
+            continue
+    ratings: dict[str, dict[str, Any]] = {}
+    notes = []
+    latest_at = ""
+    event_count = 0
+
+    for event in read_feedback_events(profile_id):
+        if str(event.get("digest_id") or "") != digest_id:
+            continue
+        event_count += 1
+        created_at = str(event.get("created_at") or "")
+        latest_at = created_at or latest_at
+        parsed = event.get("parsed_feedback") or {}
+        for rating in parsed.get("item_ratings") or []:
+            try:
+                item_number = int(rating.get("item_number"))
+                rating_value = int(rating.get("rating"))
+            except (TypeError, ValueError):
+                continue
+            ratings[str(item_number)] = {
+                "item_number": item_number,
+                "rating": rating_value,
+                "title": item_titles.get(item_number, f"Item {item_number}"),
+                "reason": str(rating.get("reason") or ""),
+                "created_at": created_at,
+            }
+
+        note = natural_feedback_note(event)
+        if note:
+            notes.append({"created_at": created_at, "text": note})
+
+    return {
+        "digest_id": digest_id,
+        "event_count": event_count,
+        "latest_at": latest_at,
+        "ratings": ratings,
+        "notes": notes[-5:],
+    }
+
+
 def manifest_items_context(manifest: dict[str, Any]) -> str:
     rows = []
     for item in manifest.get("items", []):
@@ -442,7 +513,11 @@ def render_feedback_app(manifest: dict[str, Any], selected_item: str = "", selec
       .rating-select {{ height:1px; min-height:1px; opacity:0; padding:0; position:absolute; width:1px; }}
       textarea {{ min-height:110px; resize:vertical; }}
       .chat {{ position:sticky; top:18px; display:grid; gap:12px; }}
-      .answer {{ background:#f2f5ee; border:1px solid #d9dfd8; border-radius:8px; min-height:80px; padding:12px; white-space:pre-wrap; }}
+      .answer {{ background:#f2f5ee; border:1px solid #d9dfd8; border-radius:8px; min-height:80px; padding:12px; }}
+      .answer p {{ color:#334139; margin:0 0 10px; }}
+      .answer p:last-child {{ margin-bottom:0; }}
+      .answer ul,.answer ol {{ margin:0 0 10px 20px; padding:0; }}
+      .answer li {{ color:#334139; line-height:1.45; margin:5px 0; }}
       .result {{ color:#1d6b52; font-weight:800; min-height:24px; }}
       @media (max-width: 860px) {{ .layout,.article-card {{ grid-template-columns:1fr; }} .chat {{ position:static; }} }}
     </style>
@@ -479,6 +554,46 @@ def render_feedback_app(manifest: dict[str, Any], selected_item: str = "", selec
         card.querySelectorAll('[data-score]').forEach((button) => {{
           button.classList.toggle('is-selected', button.dataset.score === value);
         }});
+      }}
+      function escapeHtml(value) {{
+        return String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#039;');
+      }}
+      function inlineFormat(value) {{
+        return escapeHtml(value)
+          .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
+          .replace(/`([^`]+)`/g, '<code>$1</code>');
+      }}
+      function renderAssistantAnswer(value) {{
+        const lines = String(value || '').split(/\\n+/).map((line) => line.trim()).filter(Boolean);
+        const blocks = [];
+        let list = [];
+        let listType = '';
+        const flushList = () => {{
+          if (!list.length) return;
+          blocks.push(`<${{listType}}>${{list.map((item) => `<li>${{inlineFormat(item)}}</li>`).join('')}}</${{listType}}>`);
+          list = [];
+          listType = '';
+        }};
+        lines.forEach((line) => {{
+          const bullet = line.match(/^[-*]\\s+(.+)$/);
+          const numbered = line.match(/^\\d+[.)]\\s+(.+)$/);
+          if (bullet || numbered) {{
+            const nextType = bullet ? 'ul' : 'ol';
+            if (listType && listType !== nextType) flushList();
+            listType = nextType;
+            list.push((bullet || numbered)[1]);
+            return;
+          }}
+          flushList();
+          blocks.push(`<p>${{inlineFormat(line.replace(/^#+\\s*/, ''))}}</p>`);
+        }});
+        flushList();
+        return blocks.join('');
       }}
       document.querySelectorAll('[data-rate]').forEach((button) => {{
         button.addEventListener('click', () => {{
@@ -517,7 +632,11 @@ def render_feedback_app(manifest: dict[str, Any], selected_item: str = "", selec
           body:JSON.stringify({{digest_id:digestId, question:document.querySelector('#question').value}})
         }});
         const data = await response.json();
-        answer.textContent = response.ok ? data.answer : (data.error || 'Could not answer.');
+        if (response.ok) {{
+          answer.innerHTML = renderAssistantAnswer(data.answer);
+        }} else {{
+          answer.textContent = data.error || 'Could not answer.';
+        }}
       }});
     </script>
   </body>
@@ -664,6 +783,7 @@ def profile_rankings(profile_id: str) -> dict[str, Any]:
         state = profile.get("state") or {}
         if state.get("last_run_status") == "sent_no_newsletters":
             result = state.get("last_run_result") or {}
+            feedback = feedback_summary_for_digest(profile_id, {"digest_id": result.get("digest_id", ""), "items": []})
             return {
                 "status": "no_newsletters",
                 "profile_id": profile_id,
@@ -681,6 +801,7 @@ def profile_rankings(profile_id: str) -> dict[str, Any]:
                     "top_source": "None",
                 },
                 "learned_preferences": read_yaml(profile_paths(profile_id).learned_preferences, {}),
+                "feedback": feedback,
             }
         return {
             "status": "empty",
@@ -689,10 +810,12 @@ def profile_rankings(profile_id: str) -> dict[str, Any]:
             "items": [],
             "summary": {},
             "learned_preferences": read_yaml(profile_paths(profile_id).learned_preferences, {}),
+            "feedback": {"digest_id": "", "event_count": 0, "latest_at": "", "ratings": {}, "notes": []},
         }
 
     ranked = read_json(scored_path, {})
     manifest = read_json(manifest_path, {}) if manifest_path.exists() else {}
+    feedback = feedback_summary_for_digest(profile_id, manifest)
     if ranked.get("status") == "no_newsletters":
         return {
             "status": "no_newsletters",
@@ -707,8 +830,13 @@ def profile_rankings(profile_id: str) -> dict[str, Any]:
             "learned_preferences": read_yaml(profile_paths(profile_id).learned_preferences, {}),
             "review_url": "",
             "digest_path": str(digest_path) if digest_path.exists() else "",
+            "feedback": feedback,
         }
     items = [compact_ranked_item(item) for item in ranked.get("scored_items", [])]
+    for item in items:
+        item_number = item.get("item_number")
+        if item_number is not None:
+            item["user_feedback"] = feedback["ratings"].get(str(item_number))
     items.sort(
         key=lambda item: (
             int(item.get("rank") or 9999),
@@ -723,6 +851,7 @@ def profile_rankings(profile_id: str) -> dict[str, Any]:
         "items": items,
         "digest_sections": ranked.get("digest_sections") or {},
         "learned_preferences": read_yaml(profile_paths(profile_id).learned_preferences, {}),
+        "feedback": feedback,
         "review_url": f"/feedback?digest_id={manifest.get('digest_id')}" if manifest.get("digest_id") else "",
         "digest_path": str(digest_path) if digest_path.exists() else "",
     }
@@ -1184,7 +1313,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     "content": (
                         "You are Finn-Signal's article assistant. Answer only from the provided digest articles. "
                         f"This digest was personalized for {user_name}. "
-                        "Be concise, cite article numbers and titles, and say when the digest does not contain enough information."
+                        "Be concise, cite article numbers and titles, and say when the digest does not contain enough information. "
+                        "Use plain text. Do not use Markdown tables or headings."
                     ),
                 },
                 {
