@@ -14,6 +14,7 @@ from app.scheduler import (
     mark_scheduler_checked,
     mark_send_failed,
     mark_sent,
+    mark_stale_send_if_needed,
     profile_due_decision,
     read_scheduler_state,
     scheduler_timezone_name,
@@ -122,6 +123,35 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(state["last_sent_on"], "2026-06-08")
         self.assertEqual(saved["last_scheduler_check_at"], "2026-06-08T11:05:00")
         self.assertNotIn("last_error", saved)
+
+    def test_stale_running_send_is_marked_failed(self):
+        previous_root = os.environ.get("FINN_SIGNAL_USERS_DIR")
+        previous_stale = os.environ.get("FINN_SIGNAL_SEND_STALE_SECONDS")
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = tmpdir
+                os.environ["FINN_SIGNAL_SEND_STALE_SECONDS"] = "60"
+                profile = create_profile("Amelia", "amelia@example.com")
+                now = datetime(2026, 6, 8, 11, 5)
+                state = {
+                    "last_run_status": "running",
+                    "last_send_started_at": "2026-06-08T11:00:00",
+                }
+
+                saved = mark_stale_send_if_needed(profile["id"], state, now=now)
+        finally:
+            if previous_root is None:
+                os.environ.pop("FINN_SIGNAL_USERS_DIR", None)
+            else:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = previous_root
+            if previous_stale is None:
+                os.environ.pop("FINN_SIGNAL_SEND_STALE_SECONDS", None)
+            else:
+                os.environ["FINN_SIGNAL_SEND_STALE_SECONDS"] = previous_stale
+
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["last_run_status"], "failed")
+        self.assertIn("still marked running", saved["last_error"])
 
     def test_launch_agent_uses_project_venv_python_when_available(self):
         with tempfile.TemporaryDirectory() as tmpdir:

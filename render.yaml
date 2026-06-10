@@ -25,10 +25,16 @@ services:
         value: 1200
       - key: FINN_SIGNAL_SCHEDULER_MAX_RUN_SECONDS
         value: 3600
+      - key: FINN_SIGNAL_SEND_STALE_SECONDS
+        value: 900
       - key: FINN_SIGNAL_DAYS
         value: 7
       - key: FINN_SIGNAL_MAX_EMAILS
         value: 25
+      - key: FINN_SIGNAL_EXTRACT_WORKERS
+        value: 4
+      - key: FINN_SIGNAL_OPENAI_TIMEOUT_SECONDS
+        value: 180
       - key: FINN_SIGNAL_GMAIL_RETRIES
         value: 5
       - key: FINN_SIGNAL_GMAIL_RETRY_SECONDS

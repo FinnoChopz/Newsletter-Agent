@@ -37,6 +37,35 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def parse_iso_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def seconds_since(value: str, now: datetime | None = None) -> float | None:
+    parsed = parse_iso_datetime(value)
+    if parsed is None:
+        return None
+    if now is None:
+        now = datetime.now(parsed.tzinfo) if parsed.tzinfo else scheduler_now()
+    if parsed.tzinfo and now.tzinfo is None:
+        now = now.replace(tzinfo=parsed.tzinfo)
+    elif parsed.tzinfo is None and now.tzinfo is not None:
+        parsed = parsed.replace(tzinfo=now.tzinfo)
+    return max(0.0, (now - parsed).total_seconds())
+
+
+def send_stale_seconds() -> int:
+    try:
+        return int(os.getenv("FINN_SIGNAL_SEND_STALE_SECONDS", "900"))
+    except ValueError:
+        return 900
+
+
 def scheduler_state_path(root: str | Path | None = None) -> Path:
     return users_root(root) / SCHEDULER_STATE_FILE
 
@@ -220,6 +249,26 @@ def mark_send_failed(
     state["last_run_status"] = "failed"
     write_json(paths.state, state)
     return state
+
+
+def mark_stale_send_if_needed(
+    profile_id: str,
+    state: dict[str, Any],
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    if state.get("last_run_status") != "running":
+        return None
+
+    started_at = str(state.get("last_send_started_at") or "")
+    age = seconds_since(started_at, now=now)
+    if age is None or age < send_stale_seconds():
+        return None
+
+    return mark_send_failed(
+        profile_id,
+        f"Previous send was still marked running after {int(age)} seconds.",
+        now=now,
+    )
 
 
 def due_profiles(now: datetime | None = None) -> list[dict[str, Any]]:

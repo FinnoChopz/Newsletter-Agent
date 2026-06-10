@@ -9,6 +9,7 @@ from app.scheduler import (
     mark_send_failed,
     mark_send_started,
     mark_sent,
+    mark_stale_send_if_needed,
     profile_due_decision,
     scheduler_now,
 )
@@ -39,7 +40,12 @@ def main() -> dict:
     due_profiles = []
     for profile in profiles:
         profile_id = profile["id"]
-        decision = profile_due_decision(profile, state=profile.get("state") or {}, now=now)
+        state = profile.get("state") or {}
+        stale_state = mark_stale_send_if_needed(profile_id, state, now=now)
+        if stale_state is not None:
+            state = stale_state
+            profile["state"] = stale_state
+        decision = profile_due_decision(profile, state=state, now=now)
         mark_scheduler_checked(profile_id, now=now, decision=decision)
         profile_summary = {
             "profile_id": profile_id,

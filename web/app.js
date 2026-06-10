@@ -956,10 +956,11 @@ function wireForms() {
   });
 
   $("#rankingSendTest").addEventListener("click", async (event) => {
-    const done = setBusy(event.currentTarget, "Sending...");
+    const done = setBusy(event.currentTarget, "Starting...");
     try {
-      $("#rankingHint").textContent = "Sending a digest now. This can take a few minutes.";
-      await sendDigestNow(null);
+      $("#rankingHint").textContent = "Starting a digest send. This can take several minutes.";
+      const data = await sendDigestNow(null);
+      $("#rankingHint").textContent = data.result?.message || "Digest send started. Refresh status to see completion.";
       await loadRankings();
     } catch (error) {
       $("#rankingHint").textContent = error.message;
@@ -978,7 +979,7 @@ function wireForms() {
   });
 
   $("#sendTest").addEventListener("click", async (event) => {
-    const done = setBusy(event.currentTarget, "Sending...");
+    const done = setBusy(event.currentTarget, "Starting...");
     try {
       await sendDigestNow("#runOutput");
     } catch (error) {

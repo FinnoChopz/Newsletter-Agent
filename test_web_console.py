@@ -1,10 +1,11 @@
 import os
 import tempfile
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 from pathlib import Path
 
-from app.profiles import create_profile
+from app.profiles import create_profile, profile_paths
 from web_console import (
     build_oauth_flow,
     console_host,
@@ -15,6 +16,7 @@ from web_console import (
     render_feedback_app,
     scheduler_state,
     send_profile_now,
+    start_profile_send,
     source_confirmation_query,
 )
 
@@ -246,6 +248,27 @@ class WebConsoleTests(unittest.TestCase):
         self.assertEqual(saved["status"], "no_newsletters")
         self.assertEqual(state["last_run_status"], "sent_no_newsletters")
         self.assertEqual(state["last_send_message_id"], "gmail-message-123")
+
+    def test_start_profile_send_reports_existing_running_send(self):
+        previous = os.environ.get("FINN_SIGNAL_USERS_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = tmpdir
+                profile = create_profile("Finn", "finn@example.com")
+                paths = profile_paths(profile["id"])
+                paths.state.write_text(
+                    f'{{"last_run_status":"running","last_send_started_at":"{datetime.now().isoformat(timespec="seconds")}"}}',
+                    encoding="utf-8",
+                )
+
+                result = start_profile_send(profile["id"])
+        finally:
+            if previous is None:
+                os.environ.pop("FINN_SIGNAL_USERS_DIR", None)
+            else:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = previous
+
+        self.assertEqual(result["status"], "already_running")
 
 
 if __name__ == "__main__":

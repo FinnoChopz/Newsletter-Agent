@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ from app.scheduler import scheduler_now
 
 
 load_dotenv()
-client = OpenAI()
+client = OpenAI(timeout=get_int_env("FINN_SIGNAL_OPENAI_TIMEOUT_SECONDS", 180))
 
 EXTRACT_PROMPT = Path("prompts/extract_items.md").read_text(encoding="utf-8")
 SCORE_PROMPT = Path("prompts/score_items.md").read_text(encoding="utf-8")
@@ -62,6 +63,26 @@ Email text:
     extracted["email_subject"] = email["subject"]
     extracted["email_id"] = email["id"]
     return extracted
+
+
+def extract_items_from_emails(emails: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    max_workers = max(1, min(get_int_env("FINN_SIGNAL_EXTRACT_WORKERS", 4), len(emails) or 1))
+    extracted_batches: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_email = {
+            executor.submit(extract_items_from_email, email): email
+            for email in emails
+        }
+        for future in as_completed(future_to_email):
+            email = future_to_email[future]
+            try:
+                extracted_batches.append(future.result())
+            except Exception as error:
+                failures.append({"subject": email.get("subject", ""), "error": str(error)})
+
+    return extracted_batches, failures
 
 
 def merge_extracted_items(extracted_batches: list[dict[str, Any]]) -> dict[str, Any]:
@@ -239,13 +260,7 @@ def run_signal_for_profile(profile_id: str) -> dict[str, Any]:
             "outputs": output_paths,
         }
 
-    extracted_batches = []
-    failures = []
-    for email in emails:
-        try:
-            extracted_batches.append(extract_items_from_email(email))
-        except Exception as error:
-            failures.append({"subject": email.get("subject", ""), "error": str(error)})
+    extracted_batches, failures = extract_items_from_emails(emails)
 
     merged = merge_extracted_items(extracted_batches)
     base_preferences_text = paths.preferences.read_text(encoding="utf-8")

@@ -54,6 +54,7 @@ from app.scheduler import (
     mark_send_failed,
     mark_send_started,
     mark_sent,
+    mark_stale_send_if_needed,
     read_scheduler_state,
     scheduler_now,
     scheduler_timezone_name,
@@ -68,6 +69,8 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).resolve().parent
 WEB_ROOT = PROJECT_ROOT / "web"
 oauth_sessions: dict[str, dict[str, Any]] = {}
+profile_send_threads: dict[str, threading.Thread] = {}
+profile_send_lock = threading.Lock()
 openai_client = OpenAI()
 
 SITE_GUIDE_TARGETS = {
@@ -245,6 +248,63 @@ def send_profile_now(profile_id: str) -> dict[str, Any]:
     else:
         mark_send_failed(profile_id, str(result), now=now)
     return result
+
+
+def profile_send_running(profile_id: str) -> dict[str, Any] | None:
+    state = read_json(profile_paths(profile_id).state, {})
+    if mark_stale_send_if_needed(profile_id, state, now=scheduler_now()) is not None:
+        return None
+
+    if state.get("last_run_status") != "running":
+        return None
+
+    started_at = str(state.get("last_send_started_at") or "")
+    return {
+        "status": "already_running",
+        "profile_id": profile_id,
+        "started_at": started_at,
+        "age_seconds": seconds_since(started_at),
+        "message": "A digest send is already running for this profile.",
+    }
+
+
+def start_profile_send(profile_id: str) -> dict[str, Any]:
+    profile_id = resolve_profile_id(profile_id)
+    running = profile_send_running(profile_id)
+    if running:
+        return running
+
+    with profile_send_lock:
+        thread = profile_send_threads.get(profile_id)
+        if thread and thread.is_alive():
+            return {
+                "status": "already_running",
+                "profile_id": profile_id,
+                "message": "A digest send is already running for this profile.",
+            }
+
+        def worker() -> None:
+            try:
+                send_profile_now(profile_id)
+            except Exception as exc:
+                print(f"Manual send failed for {profile_id}: {exc}")
+            finally:
+                with profile_send_lock:
+                    profile_send_threads.pop(profile_id, None)
+
+        thread = threading.Thread(
+            target=worker,
+            name=f"finn-signal-send-{profile_id}",
+            daemon=True,
+        )
+        profile_send_threads[profile_id] = thread
+        thread.start()
+
+    return {
+        "status": "started",
+        "profile_id": profile_id,
+        "message": "Digest send started. Refresh status to see completion.",
+    }
 
 
 def profile_id_from_digest_id(digest_id: str) -> str | None:
@@ -1046,7 +1106,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             return
 
         if action == ["send-test"]:
-            self.send_json({"result": send_profile_now(profile_id)})
+            self.send_json({"result": start_profile_send(profile_id)})
             return
 
         self.send_error_json(404, "Unknown profile action.")
