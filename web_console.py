@@ -51,7 +51,11 @@ from app.scheduler import (
     mark_hosted_scheduler_loop_finished,
     mark_hosted_scheduler_loop_started,
     mark_hosted_scheduler_started,
+    mark_send_failed,
+    mark_send_started,
+    mark_sent,
     read_scheduler_state,
+    scheduler_now,
     scheduler_timezone_name,
 )
 from run_scheduled_profiles import main as run_scheduled_profiles
@@ -225,6 +229,22 @@ def ensure_scheduler_for_profile(profile: dict[str, Any]) -> dict[str, Any]:
             "error": str(exc),
             "status": "install_failed",
         }
+
+
+def send_profile_now(profile_id: str) -> dict[str, Any]:
+    now = scheduler_now()
+    mark_send_started(profile_id, now=now)
+    try:
+        result = run_signal_for_profile(profile_id)
+    except Exception as exc:
+        mark_send_failed(profile_id, str(exc), now=now)
+        raise
+
+    if result.get("status") in {"sent", "sent_no_newsletters"}:
+        mark_sent(profile_id, now=now, result=result)
+    else:
+        mark_send_failed(profile_id, str(result), now=now)
+    return result
 
 
 def profile_id_from_digest_id(digest_id: str) -> str | None:
@@ -1026,7 +1046,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             return
 
         if action == ["send-test"]:
-            self.send_json({"result": run_signal_for_profile(profile_id)})
+            self.send_json({"result": send_profile_now(profile_id)})
             return
 
         self.send_error_json(404, "Unknown profile action.")

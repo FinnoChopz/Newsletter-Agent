@@ -14,6 +14,7 @@ from web_console import (
     profile_rankings,
     render_feedback_app,
     scheduler_state,
+    send_profile_now,
     source_confirmation_query,
 )
 
@@ -217,6 +218,34 @@ class WebConsoleTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
+
+    def test_send_profile_now_records_delivery_result(self):
+        previous = os.environ.get("FINN_SIGNAL_USERS_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = tmpdir
+                profile = create_profile("Finn", "finn@example.com")
+
+                with patch(
+                    "web_console.run_signal_for_profile",
+                    return_value={
+                        "status": "sent_no_newsletters",
+                        "send_result": {"id": "gmail-message-123"},
+                    },
+                ):
+                    send_profile_now(profile["id"])
+
+                saved = profile_rankings(profile["id"])
+                state = create_profile("Finn", "finn@example.com")["state"]
+        finally:
+            if previous is None:
+                os.environ.pop("FINN_SIGNAL_USERS_DIR", None)
+            else:
+                os.environ["FINN_SIGNAL_USERS_DIR"] = previous
+
+        self.assertEqual(saved["status"], "no_newsletters")
+        self.assertEqual(state["last_run_status"], "sent_no_newsletters")
+        self.assertEqual(state["last_send_message_id"], "gmail-message-123")
 
 
 if __name__ == "__main__":
