@@ -123,14 +123,16 @@ class WebConsoleTests(unittest.TestCase):
         self.assertIn('name="subscription_email"', html)
         self.assertIn("Save profile", html)
         self.assertIn('id="storageBanner"', html)
-        self.assertIn("Track recommendations as sources", html)
+        self.assertIn("Save all recommendations as pending", html)
         self.assertIn("single daily digest", html)
         self.assertIn("Sends exactly one digest now", html)
-        self.assertIn("Track in Finn-Signal", app_js)
+        self.assertIn("Try subscribe", app_js)
+        self.assertIn("Save for later", app_js)
         self.assertIn("Open subscribe page", app_js)
         self.assertIn("Subscribe with", app_js)
         self.assertIn("Check Gmail", app_js)
         self.assertIn("Mark receiving", app_js)
+        self.assertIn("Manual signup needed", app_js)
 
     def test_source_confirmation_query_uses_subscription_alias_and_sender(self):
         query = source_confirmation_query(

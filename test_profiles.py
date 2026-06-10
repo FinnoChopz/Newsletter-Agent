@@ -108,6 +108,8 @@ class ProfileTests(unittest.TestCase):
 
             pending = load_profile(profile["id"], root=tmp)
             self.assertEqual(pending["source_count"], 0)
+            self.assertEqual(pending["pending_source_count"], 1)
+            self.assertEqual(pending["total_source_count"], 1)
 
             set_source_status(
                 profile["id"],
@@ -118,6 +120,7 @@ class ProfileTests(unittest.TestCase):
             receiving = load_profile(profile["id"], root=tmp)
 
             self.assertEqual(receiving["source_count"], 1)
+            self.assertEqual(receiving["pending_source_count"], 0)
 
     def test_update_schedule_validates_time_and_frequency(self):
         with tempfile.TemporaryDirectory() as tmp:

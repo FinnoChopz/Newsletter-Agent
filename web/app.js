@@ -117,9 +117,12 @@ function renderStatus() {
   const schedulerLabel = state.scheduler.hosted ? "Hosted" : state.scheduler.installed ? "Installed" : "Not installed";
   const lastSent = profileState.last_sent_at || "Never";
   const lastChecked = profileState.last_scheduler_check_at || "Never";
+  const receivingCount = profile?.source_count || 0;
+  const pendingCount = profile?.pending_source_count || 0;
   $("#statusStrip").innerHTML = `
     <div class="metric"><span>Gmail</span><strong>${profile?.gmail_connected ? "Connected" : "Not connected"}</strong></div>
-    <div class="metric"><span>Sources</span><strong>${profile?.source_count || 0}</strong></div>
+    <div class="metric"><span>Receiving</span><strong>${receivingCount}</strong></div>
+    <div class="metric"><span>Pending</span><strong>${pendingCount}</strong></div>
     <div class="metric"><span>Delivery</span><strong>${schedule.enabled === false ? "Paused" : schedule.time || "11:00"}</strong></div>
     <div class="metric"><span>Runner</span><strong>${schedulerLabel}</strong></div>
     <div class="metric"><span>Last sent</span><strong>${escapeHtml(lastSent)}</strong></div>
@@ -133,7 +136,7 @@ function renderStatus() {
   }
 
   $("#schedulerPill").textContent = schedulerLabel;
-  $("#sourceCount").textContent = String(profile?.source_count || 0);
+  $("#sourceCount").textContent = pendingCount ? `${receivingCount} live / ${pendingCount} pending` : String(receivingCount);
   if (state.scheduler.hosted) {
     $("#scheduleResult").textContent = "";
   }
@@ -218,20 +221,21 @@ function renderCandidates(candidates) {
 function renderSources(sources) {
   const list = $("#sourceList");
   if (!sources.length) {
-    list.innerHTML = '<p class="quiet">No approved sources yet.</p>';
+    list.innerHTML = '<p class="quiet">No tracked sources yet.</p>';
     return;
   }
 
   list.innerHTML = sources
     .map((source) => {
       const sender = (source.senders || [])[0] || "";
-      const pending = ["needs_subscription", "pending_subscription", "pending_confirmation"].includes(source.status);
+      const pending = ["needs_subscription", "pending_subscription", "pending_confirmation", "manual_required"].includes(source.status);
       const statusClass = source.enabled === false ? "bad" : pending ? "warn" : "good";
       const statusLabels = {
         receiving: "Receiving",
         needs_subscription: "Needs subscription",
         pending_subscription: "Pending subscription",
         pending_confirmation: "Pending confirmation",
+        manual_required: "Manual signup needed",
         failed_signup: "Signup failed",
       };
       const status = source.enabled === false ? "Tracking off" : statusLabels[source.status] || "Receiving";
@@ -264,6 +268,7 @@ function renderSources(sources) {
             ${subscriptionEmail ? `<span>Subscribe with ${escapeHtml(subscriptionEmail)}</span>` : ""}
             ${link ? `<span>${link}</span>` : ""}
           </div>
+          ${source.subscription_result?.reason ? `<p>${escapeHtml(source.subscription_result.reason)}</p>` : ""}
           ${source.reason ? `<p>${escapeHtml(source.reason)}</p>` : ""}
           ${sourceActions}
         </article>
@@ -288,8 +293,8 @@ function renderRecommendations(recommendations) {
             <p>${escapeHtml(rec.description || "")}</p>
           </div>
           <div class="rec-actions">
-            <button class="secondary" data-add-rec="${index}" data-mode="track">Track in Finn-Signal</button>
-            ${rec.subscription_url ? `<a class="button-link secondary" data-add-rec="${index}" data-mode="subscribe" href="${escapeAttr(rec.subscription_url)}" target="_blank" rel="noreferrer">Open subscribe page</a>` : ""}
+            <button data-add-rec="${index}" data-mode="subscribe">Try subscribe</button>
+            <button class="secondary" data-add-rec="${index}" data-mode="track">Save for later</button>
           </div>
         </div>
         <p>${escapeHtml(rec.why_relevant || "")}</p>
@@ -297,6 +302,7 @@ function renderRecommendations(recommendations) {
         <div class="meta">
           <span>${Math.round((rec.confidence || 0) * 100)}%</span>
           ${activeProfile()?.subscription_email ? `<span>Subscribe with ${escapeHtml(activeProfile().subscription_email)}</span>` : ""}
+          ${rec.subscription_url ? `<span>${escapeHtml(rec.subscription_url)}</span>` : ""}
           ${(rec.topics || []).slice(0, 4).map((topic) => `<span>${escapeHtml(topic)}</span>`).join("")}
         </div>
       </article>
@@ -565,7 +571,8 @@ function pageGuideState() {
       candidates: state.candidates.length,
       recommendations: state.recommendations.length,
       rankings: state.rankings?.items?.length || 0,
-      sources: Number($("#sourceCount")?.textContent || 0),
+      sources: activeProfile()?.source_count || 0,
+      pending_sources: activeProfile()?.pending_source_count || 0,
     },
   };
 }
@@ -841,10 +848,7 @@ function wireForms() {
   $("#recommendationList").addEventListener("click", async (event) => {
     const button = event.target.closest("[data-add-rec]");
     if (!button) return;
-    if (button.tagName === "A") {
-      event.preventDefault();
-    }
-    const done = setBusy(button, button.dataset.mode === "subscribe" ? "Tracking..." : "Adding...");
+    const done = setBusy(button, button.dataset.mode === "subscribe" ? "Trying..." : "Saving...");
     try {
       const profile = requireProfile();
       const recommendation = state.recommendations[Number(button.dataset.addRec)];
@@ -854,8 +858,8 @@ function wireForms() {
       });
       renderSources(data.sources || []);
       await loadState();
-      if (button.tagName === "A" && button.href) {
-        window.open(button.href, "_blank", "noopener,noreferrer");
+      if (data.subscription?.status === "manual_required" && data.source?.subscription_url) {
+        window.open(data.source.subscription_url, "_blank", "noopener,noreferrer");
       }
     } catch (error) {
       alert(error.message);

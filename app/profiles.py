@@ -15,6 +15,13 @@ DEFAULT_USERS_ROOT = Path("data/users")
 RENDER_USERS_ROOT = Path("/var/data/users")
 BASE_PREFERENCES_PATH = Path("data/preferences.yaml")
 SUBSCRIPTION_ALIAS_TAG = "finnsignal"
+PENDING_SOURCE_STATUSES = {
+    "needs_subscription",
+    "pending_subscription",
+    "pending_confirmation",
+    "manual_required",
+    "failed_signup",
+}
 
 
 @dataclass(frozen=True)
@@ -368,14 +375,22 @@ def profile_with_status(
     paths = profile_paths(profile["id"], root)
     sources = read_sources(profile["id"], root=root)
     state = read_json(paths.state, {})
+    receiving_sources = [
+        source
+        for source in sources
+        if source.get("enabled", True) and source.get("status", "receiving") == "receiving"
+    ]
+    pending_sources = [
+        source
+        for source in sources
+        if source.get("enabled", True) and source.get("status", "receiving") in PENDING_SOURCE_STATUSES
+    ]
     return {
         **profile,
         "gmail_connected": paths.token.exists(),
-        "source_count": len([
-            source
-            for source in sources
-            if source.get("enabled", True) and source.get("status", "receiving") == "receiving"
-        ]),
+        "source_count": len(receiving_sources),
+        "pending_source_count": len(pending_sources),
+        "total_source_count": len([source for source in sources if source.get("enabled", True)]),
         "state": state,
         "paths": {
             "root": str(paths.root),
@@ -424,6 +439,7 @@ def normalize_source(source: dict[str, Any]) -> dict[str, Any]:
         "subscription_email": source.get("subscription_email", ""),
         "signup_attempted_at": source.get("signup_attempted_at", ""),
         "confirmation_checked_at": source.get("confirmation_checked_at", ""),
+        "subscription_result": source.get("subscription_result", {}),
         "reason": source.get("reason", ""),
         "topics": source.get("topics", []),
         "subscription_url": source.get("subscription_url", ""),
@@ -480,13 +496,7 @@ def set_source_status(
     extra: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     sender_key = sender.strip().lower()
-    allowed_statuses = {
-        "needs_subscription",
-        "pending_subscription",
-        "pending_confirmation",
-        "receiving",
-        "failed_signup",
-    }
+    allowed_statuses = {*PENDING_SOURCE_STATUSES, "receiving"}
     if status not in allowed_statuses:
         raise ValueError(f"Unknown source status: {status}")
 

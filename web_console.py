@@ -47,6 +47,7 @@ from app.ranking import item_source
 from app.scheduler import install_launch_agent, launch_agent_path
 from run_scheduled_profiles import main as run_scheduled_profiles
 from app.signal_runner import run_signal_for_profile
+from app.subscriptions import attempt_newsletter_subscription
 
 
 load_dotenv()
@@ -551,7 +552,7 @@ Finn-Signal is a web console with these tabs:
 - Onboarding: create a profile, connect Gmail, scan recent mail, approve newsletter candidates.
 - Rankings: inspect the latest ranked digest, score breakdowns, model reasoning, and article links.
 - Sources: manually add newsletter senders, inspect subscription status, check Gmail for first emails, and turn tracked senders on or off.
-- Discover: type a natural-language topic request, track recommended newsletters, or open subscription pages using the profile signup address.
+- Discover: type a natural-language topic request, then use Try subscribe so Finn-Signal attempts the signup and falls back to manual signup when needed.
 - Schedule: change delivery time/frequency for the hosted Render sender.
 - Runs: send exactly one digest immediately using receiving tracked sources.
 
@@ -837,14 +838,28 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         if action == ["recommendations", "add"]:
             profile = load_profile(profile_id)
             mode = str(body.get("mode", "track"))
-            status = "pending_subscription" if mode == "subscribe" else "needs_subscription"
+            status = "needs_subscription"
+            subscription_result = {}
+            if mode == "subscribe":
+                subscription_result = attempt_newsletter_subscription(
+                    subscription_url=str((body.get("recommendation") or body).get("subscription_url", "")),
+                    subscription_email=str(profile.get("subscription_email", "")),
+                )
+                status = (
+                    "pending_confirmation"
+                    if subscription_result.get("status") == "submitted"
+                    else "manual_required"
+                )
             source = recommendation_to_source(
                 body.get("recommendation", body),
                 subscription_email=str(profile.get("subscription_email", "")),
                 status=status,
             )
+            if subscription_result:
+                source["subscription_result"] = subscription_result
+                source["signup_attempted_at"] = datetime.now().isoformat(timespec="seconds")
             sources = upsert_source(profile_id, source)
-            self.send_json({"sources": sources, "source": source})
+            self.send_json({"sources": sources, "source": source, "subscription": subscription_result})
             return
 
         if action == ["schedule"]:
