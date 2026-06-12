@@ -81,6 +81,7 @@ SITE_GUIDE_TARGETS = {
     "discover_tab": '[data-tab="discover"]',
     "schedule_tab": '[data-tab="schedule"]',
     "runs_tab": '[data-tab="runs"]',
+    "add_profile": "#addProfile",
     "create_profile": "#profileForm",
     "connect_gmail": "#connectGmail",
     "scan_gmail": "#scanInbox",
@@ -922,6 +923,7 @@ Finn-Signal is a web console with these tabs:
 
 Visual map:
 - The profile selector is in the top-right header.
+- The Add profile button beside it starts a fresh profile form.
 - The tab bar sits under the header.
 - The status strip shows Gmail, Sources, Delivery, and Scheduler.
 - The bottom-right Help drawer is available across tabs.

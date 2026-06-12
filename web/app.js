@@ -9,6 +9,7 @@ const state = {
   sourceFilter: "active",
   scheduler: { installed: false, path: "" },
   storage: null,
+  addingProfile: false,
 };
 
 window.finnSignalState = state;
@@ -16,7 +17,9 @@ window.finnSignalState = state;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const ACTIVE_PROFILE_STORAGE_KEY = "finnSignalActiveProfileId";
+const SUBSCRIPTION_ALIAS_TAG = "finnsignal";
 const PENDING_SOURCE_STATUSES = ["needs_subscription", "pending_subscription", "pending_confirmation", "manual_required", "failed_signup"];
+let lastGeneratedSubscriptionEmail = "";
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -60,22 +63,104 @@ function requireProfile() {
   return profile;
 }
 
+function defaultSubscriptionEmail(email) {
+  const value = String(email || "").trim();
+  if (!value.includes("@")) {
+    return "";
+  }
+
+  const atIndex = value.lastIndexOf("@");
+  let local = value.slice(0, atIndex);
+  const domain = value.slice(atIndex + 1);
+  if (!local || !domain) {
+    return "";
+  }
+
+  if (local.includes("+")) {
+    local = local.split("+", 1)[0];
+  }
+
+  if (["gmail.com", "googlemail.com"].includes(domain.toLowerCase())) {
+    return `${local}+${SUBSCRIPTION_ALIAS_TAG}@${domain}`;
+  }
+
+  return value;
+}
+
+function updateSubscriptionEmailHelp(value = "") {
+  const help = $("#subscriptionEmailHelp");
+  if (!help) return;
+
+  const email = String(value || "").trim();
+  if (!email) {
+    help.textContent = "Enter the Gmail address above and this fills automatically. Gmail plus-address mail still arrives in the same inbox.";
+    return;
+  }
+
+  if (email.includes(`+${SUBSCRIPTION_ALIAS_TAG}@`)) {
+    help.textContent = `Finn-Signal will subscribe with ${email}. This is a Gmail plus-address, so messages still land in the main Gmail inbox.`;
+    return;
+  }
+
+  help.textContent = `Finn-Signal will use ${email} when it tries newsletter signups.`;
+}
+
+function syncSubscriptionEmailFromMainEmail(force = false) {
+  const form = $("#profileForm");
+  if (!form) return;
+
+  const subscriptionField = form.elements.subscription_email;
+  const generated = defaultSubscriptionEmail(form.elements.email.value);
+  const current = subscriptionField.value.trim();
+  const shouldFill =
+    force ||
+    !current ||
+    subscriptionField.dataset.autofilled === "true" ||
+    current === lastGeneratedSubscriptionEmail;
+
+  if (generated && shouldFill) {
+    subscriptionField.value = generated;
+    subscriptionField.dataset.autofilled = "true";
+    lastGeneratedSubscriptionEmail = generated;
+    updateSubscriptionEmailHelp(generated);
+    return;
+  }
+
+  updateSubscriptionEmailHelp(current || generated);
+}
+
+function resetProfileForm() {
+  const form = $("#profileForm");
+  if (!form) return;
+
+  form.reset();
+  form.elements.subscription_email.dataset.autofilled = "true";
+  lastGeneratedSubscriptionEmail = "";
+  $("#profileFormTitle").textContent = "New profile";
+  $("#profileSubmit").textContent = "Create profile";
+  updateSubscriptionEmailHelp("");
+}
+
 function renderProfiles() {
   const select = $("#profileSelect");
-  select.innerHTML = "";
+  select.innerHTML = '<option value="">New profile...</option>';
 
   if (!state.profiles.length) {
-    select.innerHTML = '<option value="">No profiles yet</option>';
     state.activeProfileId = "";
+    state.addingProfile = true;
+    select.value = "";
+    renderProfileForm();
     return;
   }
 
   const savedProfileId = window.localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY) || "";
-  if (!state.activeProfileId && savedProfileId && state.profiles.some((profile) => profile.id === savedProfileId)) {
+  if (!state.addingProfile && !state.activeProfileId && savedProfileId && state.profiles.some((profile) => profile.id === savedProfileId)) {
     state.activeProfileId = savedProfileId;
   }
 
-  if (!state.activeProfileId || !state.profiles.some((profile) => profile.id === state.activeProfileId)) {
+  if (state.addingProfile) {
+    state.activeProfileId = "";
+  } else if (!state.activeProfileId || !state.profiles.some((profile) => profile.id === state.activeProfileId)) {
     state.activeProfileId = state.profiles[0].id;
   }
 
@@ -86,7 +171,12 @@ function renderProfiles() {
     option.selected = profile.id === state.activeProfileId;
     select.appendChild(option);
   });
-  window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, state.activeProfileId);
+  select.value = state.activeProfileId;
+  if (state.activeProfileId) {
+    window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, state.activeProfileId);
+  } else {
+    window.localStorage.removeItem(ACTIVE_PROFILE_STORAGE_KEY);
+  }
   renderProfileForm();
 }
 
@@ -96,10 +186,7 @@ function renderProfileForm() {
 
   const profile = activeProfile();
   if (!profile) {
-    form.elements.display_name.value = "";
-    form.elements.email.value = "";
-    form.elements.subscription_email.value = "";
-    form.elements.interests.value = "";
+    resetProfileForm();
     return;
   }
 
@@ -111,6 +198,13 @@ function renderProfileForm() {
   form.elements.email.value = profile.email || "";
   form.elements.subscription_email.value = profile.subscription_email || "";
   form.elements.interests.value = (profile.interests || []).join("\n");
+  $("#profileFormTitle").textContent = "Edit profile";
+  $("#profileSubmit").textContent = "Save profile";
+  const generated = defaultSubscriptionEmail(profile.email);
+  const subscriptionEmail = form.elements.subscription_email.value.trim();
+  form.elements.subscription_email.dataset.autofilled = subscriptionEmail === generated ? "true" : "false";
+  lastGeneratedSubscriptionEmail = subscriptionEmail || generated;
+  updateSubscriptionEmailHelp(subscriptionEmail || generated);
 }
 
 function renderStatus() {
@@ -793,20 +887,44 @@ async function askGuide(question) {
   applyGuideHighlights(data.highlights || []);
 }
 
+async function activateTab(tabId) {
+  const button = $(`[data-tab="${tabId}"]`);
+  const view = $(`#${tabId}`);
+  if (!button || !view) return;
+
+  $$(".tab").forEach((tab) => tab.classList.remove("is-active"));
+  $$(".view").forEach((item) => item.classList.remove("is-active"));
+  button.classList.add("is-active");
+  view.classList.add("is-active");
+
+  if (tabId === "rankings") {
+    try {
+      await loadRankings();
+    } catch (error) {
+      renderRankings({ status: "empty", message: error.message, items: [], learned_preferences: {} });
+    }
+  }
+}
+
+function startNewProfile() {
+  state.addingProfile = true;
+  state.activeProfileId = "";
+  state.candidates = [];
+  state.recommendations = [];
+  window.localStorage.removeItem(ACTIVE_PROFILE_STORAGE_KEY);
+  $("#profileSelect").value = "";
+  renderCandidates([]);
+  renderRecommendations([]);
+  renderProfileForm();
+  renderStatus();
+  renderSources([]);
+  showResult("#profileResult", "Fill out the form to create a new profile.");
+}
+
 function wireTabs() {
   $$(".tab").forEach((button) => {
     button.addEventListener("click", async () => {
-      $$(".tab").forEach((tab) => tab.classList.remove("is-active"));
-      $$(".view").forEach((view) => view.classList.remove("is-active"));
-      button.classList.add("is-active");
-      $(`#${button.dataset.tab}`).classList.add("is-active");
-      if (button.dataset.tab === "rankings") {
-        try {
-          await loadRankings();
-        } catch (error) {
-          renderRankings({ status: "empty", message: error.message, items: [], learned_preferences: {} });
-        }
-      }
+      await activateTab(button.dataset.tab);
     });
   });
 }
@@ -814,7 +932,12 @@ function wireTabs() {
 function wireForms() {
   $("#profileSelect").addEventListener("change", async (event) => {
     state.activeProfileId = event.target.value;
-    window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, state.activeProfileId);
+    state.addingProfile = !state.activeProfileId;
+    if (state.activeProfileId) {
+      window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, state.activeProfileId);
+    } else {
+      window.localStorage.removeItem(ACTIVE_PROFILE_STORAGE_KEY);
+    }
     state.candidates = [];
     state.recommendations = [];
     renderCandidates([]);
@@ -827,16 +950,39 @@ function wireForms() {
     }
   });
 
+  $("#addProfile").addEventListener("click", async () => {
+    startNewProfile();
+    await activateTab("onboarding");
+    $("#profileForm").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("#profileForm").elements.display_name.focus();
+  });
+
+  $("#profileForm").elements.email.addEventListener("input", () => {
+    syncSubscriptionEmailFromMainEmail(false);
+  });
+
+  $("#profileForm").elements.subscription_email.addEventListener("input", (event) => {
+    const field = event.currentTarget;
+    field.dataset.autofilled = field.value.trim() ? "false" : "true";
+    updateSubscriptionEmailHelp(field.value.trim() || defaultSubscriptionEmail($("#profileForm").elements.email.value));
+  });
+
+  $("#profileForm").elements.subscription_email.addEventListener("blur", () => {
+    syncSubscriptionEmailFromMainEmail(false);
+  });
+
   $("#profileForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const formElement = event.currentTarget;
-    const done = setBusy(submitButtonFor(formElement, event), "Creating...");
+    syncSubscriptionEmailFromMainEmail(false);
+    const done = setBusy(submitButtonFor(formElement, event), activeProfile() ? "Saving..." : "Creating...");
     try {
       const form = new FormData(formElement);
       const data = await api("/api/profiles", {
         method: "POST",
         body: JSON.stringify(Object.fromEntries(form.entries())),
       });
+      state.addingProfile = false;
       state.activeProfileId = data.profile.id;
       window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, state.activeProfileId);
       await loadState();

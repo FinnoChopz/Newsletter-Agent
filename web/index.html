@@ -15,7 +15,10 @@
           <p class="lede">A personal daily signal engine for Gmail newsletters. Set it up once, then tune it from here.</p>
         </div>
         <div class="profile-control">
-          <label for="profileSelect">Profile</label>
+          <div class="profile-control-head">
+            <label for="profileSelect">Profile</label>
+            <button id="addProfile" class="secondary" type="button">Add profile</button>
+          </div>
           <select id="profileSelect"></select>
         </div>
       </header>
@@ -36,25 +39,25 @@
         <div class="rail">
           <div class="rail-step">
             <span>1</span>
-            <p>Create a profile and describe what they actually care about.</p>
+            <p>Add a profile, enter the Gmail account, and describe what should matter in the digest.</p>
           </div>
           <div class="rail-step">
             <span>2</span>
-            <p>Connect their Gmail so Finn-Signal can read newsletters and send the digest.</p>
+            <p>Use the auto-filled signup address when subscribing to newsletters; it still lands in the main Gmail inbox.</p>
           </div>
           <div class="rail-step">
             <span>3</span>
-            <p>Scan the inbox, approve good newsletter senders, then set the schedule.</p>
+            <p>Connect Gmail, scan the inbox, approve good senders, then set the delivery schedule.</p>
           </div>
         </div>
 
         <div class="grid two">
           <form class="panel" id="profileForm">
             <div class="panel-head">
-              <h2>Profile</h2>
+              <h2 id="profileFormTitle">New profile</h2>
               <span class="step-pill">Step 1</span>
             </div>
-            <p class="quiet">Create a new profile, or select an existing one from the top-right menu and update it here.</p>
+            <p class="quiet">Click Add profile to start fresh. Select an existing profile in the header when you want to review or update it.</p>
             <label>
               Name
               <input name="display_name" autocomplete="name" placeholder="Amelia">
@@ -65,13 +68,14 @@
             </label>
             <label>
               Newsletter signup address
-              <input name="subscription_email" type="email" autocomplete="email" placeholder="name+finnsignal@gmail.com">
+              <input name="subscription_email" type="email" autocomplete="email" placeholder="name+finnsignal@gmail.com" aria-describedby="subscriptionEmailHelp">
             </label>
+            <p class="field-help" id="subscriptionEmailHelp">Enter the Gmail address above and this fills automatically. Gmail plus-address mail still arrives in the same inbox.</p>
             <label>
               Interests
               <textarea name="interests" rows="6" placeholder="AI in education, local politics, climate tech, food writing, parenting, architecture, public health" required></textarea>
             </label>
-            <button type="submit">Save profile</button>
+            <button id="profileSubmit" type="submit">Create profile</button>
             <div class="result" id="profileResult"></div>
           </form>
 
@@ -80,7 +84,7 @@
               <h2>Connect Gmail</h2>
               <span class="step-pill">Step 2</span>
             </div>
-            <p class="quiet">Google will ask for Gmail read/send access. This lets Finn-Signal read newsletters and send the daily digest from that account.</p>
+            <p class="quiet">Connect the same Gmail account shown on the selected profile. Finn-Signal reads newsletter mail from that inbox and sends the daily digest from it.</p>
             <button id="connectGmail">Connect selected Gmail</button>
             <div class="result" id="gmailResult"></div>
           </div>
